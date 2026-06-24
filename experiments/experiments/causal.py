@@ -10,8 +10,14 @@ from .helpers import run_slug, run_config
 def experiment_causal(datasets, num_workers, force, device):
     print("\n=== Phase 1: Causal Channel Selection ===")
     feat_layer = CFG.get_feature_layer()
-    slug = run_slug(CFG.backbone, feat_layer)
+    base_slug = run_slug(CFG.backbone, feat_layer)
+    slug = f"{base_slug}_causal_{CFG.causal_method}"
+    if CFG.causal_method == "intervention":
+        slug += f"_mi{CFG.max_intensity}_ns{CFG.n_steps}"
     cfg_dict = run_config(CFG.backbone, feat_layer)
+    cfg_dict["causal_method"] = CFG.causal_method
+    cfg_dict["max_intensity"] = CFG.max_intensity
+    cfg_dict["n_steps"] = CFG.n_steps
     print(f"  backbone={CFG.backbone}  feat={feat_layer}"
           f"  pf={CFG.percent_features}  ws={CFG.window_size}"
           f"  method={CFG.causal_method}"
