@@ -143,27 +143,33 @@ class IDFIQA_SpatialCausal(nn.Module):
             )
 
             sensitivity = torch.zeros(grid_h, grid_w, device=ref.device)
+            chunk = 8
 
             for s in range(self.n_steps):
                 ref_batch, dist_batch, coords = self._build_perturbed_batch(
                     ref, dist, intensity_values[s]
                 )
 
-                if self.patch_score_method == "full":
-                    feat_ref_batch = self._features(ref_batch)
-                    feat_dist_batch = self._features(dist_batch)
-                    for idx, (i, j) in enumerate(coords):
-                        fr = feat_ref_batch[idx:idx+1]
-                        fd = feat_dist_batch[idx:idx+1]
-                        score = self._compute_score(fr, fd)
-                        sensitivity[i, j] += torch.abs(base_scores[i, j] - score.mean())
-                else:
-                    feat_ref_batch = self._features(ref_batch)
-                    feat_dist_batch = self._features(dist_batch)
-                    for idx, (i, j) in enumerate(coords):
-                        fr = feat_ref_batch[idx:idx+1]
-                        fd = feat_dist_batch[idx:idx+1]
-                        score = self._patch_score_l2(fr, fd, i, j)
+                for start in range(0, len(coords), chunk):
+                    end = min(start + chunk, len(coords))
+                    ref_chunk = ref_batch[start:end]
+                    dist_chunk = dist_batch[start:end]
+
+                    if self.patch_score_method == "full":
+                        feat_r = self._features(ref_chunk)
+                        feat_d = self._features(dist_chunk)
+                    else:
+                        feat_r = self._features(ref_chunk)
+                        feat_d = self._features(dist_chunk)
+
+                    for idx in range(end - start):
+                        i, j = coords[start + idx]
+                        fr = feat_r[idx:idx+1]
+                        fd = feat_d[idx:idx+1]
+                        if self.patch_score_method == "full":
+                            score = self._compute_score(fr, fd)
+                        else:
+                            score = self._patch_score_l2(fr, fd, i, j)
                         sensitivity[i, j] += torch.abs(base_scores[i, j] - score.mean())
 
             sensitivity /= self.n_steps
