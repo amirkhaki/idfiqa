@@ -129,8 +129,8 @@ class IDFIQA_SpatialCausal(nn.Module):
                     ref_patch = ref[:, :, y1:y2, x1:x2].unsqueeze(0) + noise
                     dist_patch = dist[:, :, y1:y2, x1:x2].unsqueeze(0) + noise
 
-                    ref_perturbed = ref.repeat(self.n_steps, 1, 1, 1)
-                    dist_perturbed = dist.repeat(self.n_steps, 1, 1, 1)
+                    ref_perturbed = ref.repeat(self.n_steps, 1, 1, 1, 1)
+                    dist_perturbed = dist.repeat(self.n_steps, 1, 1, 1, 1)
                     ref_perturbed[:, :, y1:y2, x1:x2] = ref_patch
                     dist_perturbed[:, :, y1:y2, x1:x2] = dist_patch
 
