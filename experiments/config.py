@@ -109,6 +109,8 @@ class Config:
     causal_method: str = "gradient"
     max_intensity: float = 0.1
     n_steps: int = 10
+    patch_size_spatial: int = 32
+    patch_score_method: str = "full"
 
     large_ds_threshold: int = 1000
     large_ds_n_samples: int = 1000

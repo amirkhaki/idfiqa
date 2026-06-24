@@ -1,6 +1,7 @@
 from .layer_search import experiment_layer_search
 from .baseline import experiment_baseline, compute_delta_table
 from .causal import experiment_causal
+from .spatial import experiment_spatial
 from .patch_weighted import experiment_patch_weighted
 from .ablations import (
     experiment_ablation_weight_source,
@@ -16,6 +17,7 @@ __all__ = [
     "experiment_layer_search",
     "experiment_baseline",
     "experiment_causal",
+    "experiment_spatial",
     "experiment_patch_weighted",
     "experiment_ablation_weight_source",
     "experiment_ablation_aggregation",

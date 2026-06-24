@@ -10,6 +10,7 @@ from experiments.experiments import (
     experiment_layer_search,
     experiment_baseline,
     experiment_causal,
+    experiment_spatial,
     experiment_patch_weighted,
     experiment_ablation_weight_source,
     experiment_ablation_aggregation,
@@ -54,6 +55,9 @@ def main():
                         choices=["gradient", "intervention"])
     parser.add_argument("-I", "--max-intensity", type=float, default=None)
     parser.add_argument("-n", "--n-steps", type=int, default=None)
+    parser.add_argument("-S", "--patch-size-spatial", type=int, default=None)
+    parser.add_argument("-M", "--patch-score-method", type=str, default=None,
+                        choices=["full", "l2"])
     parser.add_argument("-D", "--diagnose", action="store_true")
     args = parser.parse_args()
 
@@ -79,6 +83,10 @@ def main():
         CFG.max_intensity = args.max_intensity
     if args.n_steps is not None:
         CFG.n_steps = args.n_steps
+    if args.patch_size_spatial is not None:
+        CFG.patch_size_spatial = args.patch_size_spatial
+    if args.patch_score_method:
+        CFG.patch_score_method = args.patch_score_method
 
     CFG.diagnose = args.diagnose
 
@@ -109,6 +117,9 @@ def main():
 
     if exp in ("all", "causal"):
         experiment_causal(all_ds, nw, force, device)
+
+    if exp in ("all", "spatial"):
+        experiment_spatial(all_ds, nw, force, device)
 
     if exp in ("all", "patch_weighted"):
         patch_results = experiment_patch_weighted(all_ds, nw, force, device)
