@@ -120,17 +120,17 @@ class IDFIQA_SpatialCausal(nn.Module):
                     ph, pw = y2 - y1, x2 - x1
 
                     noise_base = torch.randn(
-                        self.n_steps, n, 1, ph, pw, device=ref.device
+                        self.n_steps, n, c, ph, pw, device=ref.device
                     )
                     patch_mean = ((ref[:, :, y1:y2, x1:x2] +
                                    dist[:, :, y1:y2, x1:x2]) / 2).mean(dim=[2, 3], keepdim=True)
                     noise = noise_base * patch_mean * intensity_values.view(-1, 1, 1, 1, 1)
 
-                    ref_patch = ref[:, :, y1:y2, x1:x2].unsqueeze(0) + noise
-                    dist_patch = dist[:, :, y1:y2, x1:x2].unsqueeze(0) + noise
+                    ref_patch = ref[:, :, y1:y2, x1:x2].unsqueeze(1) + noise
+                    dist_patch = dist[:, :, y1:y2, x1:x2].unsqueeze(1) + noise
 
-                    ref_perturbed = ref.repeat(self.n_steps, 1, 1, 1, 1)
-                    dist_perturbed = dist.repeat(self.n_steps, 1, 1, 1, 1)
+                    ref_perturbed = ref.unsqueeze(0).repeat(self.n_steps, 1, 1, 1, 1)
+                    dist_perturbed = dist.unsqueeze(0).repeat(self.n_steps, 1, 1, 1, 1)
                     ref_perturbed[:, :, y1:y2, x1:x2] = ref_patch
                     dist_perturbed[:, :, y1:y2, x1:x2] = dist_patch
 
