@@ -23,7 +23,7 @@ from experiments.experiments import (
 )
 
 EXPERIMENT_CHOICES = [
-    "all", "layer_search", "baseline", "causal", "patch_weighted",
+    "all", "layer_search", "baseline", "causal", "spatial", "patch_weighted",
     "ablation_weight_source", "ablation_aggregation", "ablation_patch_window",
     "ablation_percent_features", "backbone_comparison", "geometric_robustness",
     "complexity",
