@@ -106,7 +106,8 @@ class Config:
     window_size: int = 4
     patch_size: int = 8
     aggregation: str = "max"
-    noise_std: float = 0.1
+    max_intensity: float = 0.1
+    n_steps: int = 10
     large_ds_threshold: int = 1000
     large_ds_n_samples: int = 1000
     large_ds_n_runs: int = 5

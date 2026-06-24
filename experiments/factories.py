@@ -15,16 +15,18 @@ def make_baseline_model(device, *, backbone=None, feature_layer=None, pf=None, w
 
 
 def make_causal_model(device, *, backbone=None, feature_layer=None,
-                      pf=None, ws=None, noise_std=None):
+                      pf=None, ws=None, max_intensity=None, n_steps=None):
     backbone = backbone or CFG.backbone
     feature_layer = feature_layer or CFG.get_feature_layer(backbone)
     pf = pf if pf is not None else CFG.percent_features
     ws = ws if ws is not None else CFG.window_size
-    noise_std = noise_std if noise_std is not None else CFG.noise_std
+    max_intensity = max_intensity if max_intensity is not None else CFG.max_intensity
+    n_steps = n_steps if n_steps is not None else CFG.n_steps
     ext, norm, key = make_single_extractor(backbone, feature_layer)
     return IDFIQA_Causal(ext, norm, feature_node_key=key,
                          device=device, percent_features_to_keep=pf,
-                         window_size=ws, noise_std=noise_std)
+                         window_size=ws, max_intensity=max_intensity,
+                         n_steps=n_steps)
 
 
 def make_patch_model(device, *, backbone=None, feature_layer=None, weight_layer=None,

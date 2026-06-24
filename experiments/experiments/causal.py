@@ -12,7 +12,8 @@ def experiment_causal(datasets, num_workers, force, device):
     slug = run_slug(CFG.backbone, feat_layer)
     cfg_dict = run_config(CFG.backbone, feat_layer)
     print(f"  backbone={CFG.backbone}  feat={feat_layer}"
-          f"  pf={CFG.percent_features}  ws={CFG.window_size}  noise_std={CFG.noise_std}")
+          f"  pf={CFG.percent_features}  ws={CFG.window_size}"
+          f"  max_intensity={CFG.max_intensity}  n_steps={CFG.n_steps}")
     summary_file = f"phase1_causal_{slug}_summary.json"
     results = {}
 
