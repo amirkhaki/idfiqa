@@ -61,11 +61,12 @@ class IDFIQA_Causal(nn.Module):
         n, c, h, w = feat_ref.shape
         k = max(1, int(c * self.pf))
 
-        feat_ref_g = feat_ref.detach().requires_grad_(True)
-        feat_dist_g = feat_dist.detach().requires_grad_(True)
+        with torch.enable_grad():
+            feat_ref_g = feat_ref.detach().requires_grad_(True)
+            feat_dist_g = feat_dist.detach().requires_grad_(True)
 
-        score = self._compute_score(feat_ref_g, feat_dist_g)
-        score.sum().backward()
+            score = self._compute_score(feat_ref_g, feat_dist_g)
+            score.sum().backward()
 
         sensitivities = (feat_ref_g.grad.abs().mean(dim=(0, 2, 3)) +
                          feat_dist_g.grad.abs().mean(dim=(0, 2, 3)))
