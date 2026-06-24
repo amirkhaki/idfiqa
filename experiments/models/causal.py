@@ -103,6 +103,7 @@ class IDFIQA_Causal(nn.Module):
                 )
 
         _, idx = torch.topk(sensitivities, k)
+        idx = idx.unsqueeze(0).expand(n, -1)
         idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
         s_ref = torch.gather(feat_ref, 1, idx_r)
         _, _, hd, wd = feat_dist.shape
