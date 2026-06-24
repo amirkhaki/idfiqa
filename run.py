@@ -56,8 +56,6 @@ def main():
     parser.add_argument("-I", "--max-intensity", type=float, default=None)
     parser.add_argument("-n", "--n-steps", type=int, default=None)
     parser.add_argument("-S", "--patch-size-spatial", type=int, default=None)
-    parser.add_argument("-M", "--patch-score-method", type=str, default=None,
-                        choices=["full", "l2"])
     parser.add_argument("-D", "--diagnose", action="store_true")
     args = parser.parse_args()
 
@@ -85,8 +83,6 @@ def main():
         CFG.n_steps = args.n_steps
     if args.patch_size_spatial is not None:
         CFG.patch_size_spatial = args.patch_size_spatial
-    if args.patch_score_method:
-        CFG.patch_score_method = args.patch_score_method
 
     CFG.diagnose = args.diagnose
 

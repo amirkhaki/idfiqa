@@ -11,15 +11,11 @@ def experiment_spatial(datasets, num_workers, force, device):
     print("\n=== Phase 1b: Spatial Causal Patch Selection ===")
     feat_layer = CFG.get_feature_layer()
     base_slug = run_slug(CFG.backbone, feat_layer)
-    slug = f"{base_slug}_spatial_ps{CFG.patch_size_spatial}_{CFG.patch_score_method}"
+    slug = f"{base_slug}_spatial_ps{CFG.patch_size_spatial}"
     cfg_dict = run_config(CFG.backbone, feat_layer)
     cfg_dict["patch_size_spatial"] = CFG.patch_size_spatial
-    cfg_dict["patch_score_method"] = CFG.patch_score_method
-    cfg_dict["max_intensity"] = CFG.max_intensity
-    cfg_dict["n_steps"] = CFG.n_steps
     print(f"  backbone={CFG.backbone}  feat={feat_layer}"
-          f"  ps={CFG.patch_size_spatial}  method={CFG.patch_score_method}"
-          f"  max_intensity={CFG.max_intensity}  n_steps={CFG.n_steps}")
+          f"  ps={CFG.patch_size_spatial}")
     summary_file = f"phase1b_spatial_{slug}_summary.json"
     results = {}
 

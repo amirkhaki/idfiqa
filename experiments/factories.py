@@ -48,19 +48,13 @@ def make_patch_model(device, *, backbone=None, feature_layer=None, weight_layer=
 
 
 def make_spatial_model(device, *, backbone=None, feature_layer=None,
-                       pf=None, ws=None, ps=None, patch_score_method=None,
-                       max_intensity=None, n_steps=None):
+                       pf=None, ws=None, ps=None):
     backbone = backbone or CFG.backbone
     feature_layer = feature_layer or CFG.get_feature_layer(backbone)
     pf = pf if pf is not None else CFG.percent_features
     ws = ws if ws is not None else CFG.window_size
     ps = ps if ps is not None else CFG.patch_size_spatial
-    patch_score_method = patch_score_method or CFG.patch_score_method
-    max_intensity = max_intensity if max_intensity is not None else CFG.max_intensity
-    n_steps = n_steps if n_steps is not None else CFG.n_steps
     ext, norm, key = make_single_extractor(backbone, feature_layer)
     return IDFIQA_SpatialCausal(ext, norm, feature_node_key=key,
                                 device=device, percent_features_to_keep=pf,
-                                window_size=ws, patch_size=ps,
-                                patch_score_method=patch_score_method,
-                                max_intensity=max_intensity, n_steps=n_steps)
+                                window_size=ws, patch_size=ps)
