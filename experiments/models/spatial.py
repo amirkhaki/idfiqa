@@ -85,6 +85,28 @@ class IDFIQA_SpatialCausal(nn.Module):
         pd = feat_dist[:, :, y1:y2, x1:x2].flatten(1)
         return torch.norm(pr - pd, dim=1)
 
+    def _perturb_patch_and_score(self, ref, dist, i, j, intensity):
+        n, c, h, w = ref.shape
+        y1, y2 = i * self.ps, min((i + 1) * self.ps, h)
+        x1, x2 = j * self.ps, min((j + 1) * self.ps, w)
+        ph, pw = y2 - y1, x2 - x1
+
+        patch_mean = ((ref[:, :, y1:y2, x1:x2] +
+                       dist[:, :, y1:y2, x1:x2]) / 2).mean(dim=[2, 3], keepdim=True)
+        noise = torch.randn(n, c, ph, pw, device=ref.device) * patch_mean * intensity
+
+        ref_perturbed = ref.clone()
+        dist_perturbed = dist.clone()
+        ref_perturbed[:, :, y1:y2, x1:x2] += noise
+        dist_perturbed[:, :, y1:y2, x1:x2] += noise
+
+        if self.patch_score_method == "full":
+            return self._patch_score_full(ref_perturbed, dist_perturbed, i, j)
+        else:
+            feat_r = self._features(ref_perturbed)
+            feat_d = self._features(dist_perturbed)
+            return self._patch_score_l2(feat_r, feat_d, i, j)
+
     def _get_patch_scores(self, ref, dist, feat_ref, feat_dist, grid_h, grid_w):
         scores = torch.zeros(grid_h, grid_w, device=ref.device)
         for i in range(grid_h):
@@ -115,42 +137,13 @@ class IDFIQA_SpatialCausal(nn.Module):
 
             for i in range(grid_h):
                 for j in range(grid_w):
-                    y1, y2 = i * self.ps, min((i + 1) * self.ps, h)
-                    x1, x2 = j * self.ps, min((j + 1) * self.ps, w)
-                    ph, pw = y2 - y1, x2 - x1
-
-                    noise_base = torch.randn(
-                        self.n_steps, n, c, ph, pw, device=ref.device
-                    )
-                    patch_mean = ((ref[:, :, y1:y2, x1:x2] +
-                                   dist[:, :, y1:y2, x1:x2]) / 2).mean(dim=[2, 3], keepdim=True)
-                    noise = noise_base * patch_mean * intensity_values.view(-1, 1, 1, 1, 1)
-
-                    ref_patch = ref[:, :, y1:y2, x1:x2].unsqueeze(1) + noise
-                    dist_patch = dist[:, :, y1:y2, x1:x2].unsqueeze(1) + noise
-
-                    ref_perturbed = ref.unsqueeze(0).repeat(self.n_steps, 1, 1, 1, 1)
-                    dist_perturbed = dist.unsqueeze(0).repeat(self.n_steps, 1, 1, 1, 1)
-                    ref_perturbed[:, :, y1:y2, x1:x2] = ref_patch
-                    dist_perturbed[:, :, y1:y2, x1:x2] = dist_patch
-
-                    ref_flat = ref_perturbed.reshape(self.n_steps * n, c, h, w)
-                    dist_flat = dist_perturbed.reshape(self.n_steps * n, c, h, w)
-
-                    if self.patch_score_method == "full":
-                        perturbed = torch.cat([
-                            self._patch_score_full(ref_flat[b:b+1], dist_flat[b:b+1], i, j)
-                            for b in range(self.n_steps * n)
-                        ])
-                    else:
-                        feat_ref_flat = self._features(ref_flat)
-                        feat_dist_flat = self._features(dist_flat)
-                        perturbed = torch.cat([
-                            self._patch_score_l2(feat_ref_flat[b:b+1], feat_dist_flat[b:b+1], i, j)
-                            for b in range(self.n_steps * n)
-                        ])
-
-                    perturbed = perturbed.reshape(self.n_steps, n)
+                    perturbed_scores = []
+                    for s in range(self.n_steps):
+                        score = self._perturb_patch_and_score(
+                            ref, dist, i, j, intensity_values[s]
+                        )
+                        perturbed_scores.append(score)
+                    perturbed = torch.stack(perturbed_scores)
                     base = base_scores[i, j].expand_as(perturbed[:, :1])
                     sensitivity[i, j] = torch.mean(torch.abs(base - perturbed))
 
