@@ -3,6 +3,7 @@ import os
 import csv
 import random as _random
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
@@ -67,7 +68,6 @@ def run_evaluation(model, dataset_name: str, csv_filename: str,
 
     loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=num_workers)
 
-    import numpy as np
     start_idx = 0
     existing_rows = []
     if os.path.exists(csv_file) and not force:
