@@ -1,8 +1,8 @@
 """Causal channel selection variant.
 
-Uses gradient-based sensitivity to measure each channel's causal
-influence on the quality score — equivalent to infinitesimal
-intervention but O(1) instead of O(C × n_steps).
+Two methods for measuring per-channel sensitivity:
+- "gradient": single forward+backward pass (fast, O(1))
+- "intervention": multi-intensity noise perturbation (slow, O(C × n_steps))
 """
 import torch
 import torch.nn as nn
@@ -12,8 +12,7 @@ import torch.nn.functional as F
 class IDFIQA_Causal(nn.Module):
     """
     Causal channel selection variant of IDFIQA.
-    Measures per-channel sensitivity via gradient of the quality score
-    w.r.t. features, then selects the top-k most influential channels.
+    Selects channels by their causal influence on the quality score.
     """
 
     def __init__(self, feature_extractor, normalize,
@@ -21,6 +20,9 @@ class IDFIQA_Causal(nn.Module):
                  device=None,
                  percent_features_to_keep=0.6,
                  window_size=4,
+                 causal_method="gradient",
+                 max_intensity=0.1,
+                 n_steps=10,
                  xi=1e-8):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,6 +33,9 @@ class IDFIQA_Causal(nn.Module):
         self.feature_node_key = feature_node_key
         self.pf = percent_features_to_keep
         self.ws = window_size
+        self.causal_method = causal_method
+        self.max_intensity = max_intensity
+        self.n_steps = n_steps
         self.xi = xi
 
     def _features(self, img):
@@ -44,7 +49,6 @@ class IDFIQA_Causal(nn.Module):
         return torch.bmm(f, f.transpose(1, 2)) / (h * w)
 
     def _compute_score(self, feat_ref, feat_dist):
-        """Quality score from gram matrices + windowed SSIM-like local similarity."""
         gr = self._gram(feat_ref)
         gd = self._gram(feat_dist)
         gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
@@ -57,14 +61,13 @@ class IDFIQA_Causal(nn.Module):
         local = (2 * cov + self.xi) / (vr + vd + self.xi)
         return local.mean(dim=1)
 
-    def _select_channels(self, feat_ref, feat_dist):
+    def _select_gradient(self, feat_ref, feat_dist):
         n, c, h, w = feat_ref.shape
         k = max(1, int(c * self.pf))
 
         with torch.enable_grad():
             feat_ref_g = feat_ref.detach().requires_grad_(True)
             feat_dist_g = feat_dist.detach().requires_grad_(True)
-
             score = self._compute_score(feat_ref_g, feat_dist_g)
             score.sum().backward()
 
@@ -80,6 +83,61 @@ class IDFIQA_Causal(nn.Module):
             idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
             s_dist = torch.gather(feat_dist, 1, idx_d)
             return s_ref, s_dist
+
+    def _select_intervention(self, feat_ref, feat_dist):
+        n, c, h, w = feat_ref.shape
+        k = max(1, int(c * self.pf))
+
+        with torch.no_grad():
+            base_score = self._compute_score(feat_ref, feat_dist)
+            feat_mean = (feat_ref + feat_dist) / 2
+
+            intensity_values = torch.linspace(
+                self.max_intensity / self.n_steps,
+                self.max_intensity,
+                self.n_steps,
+                device=feat_ref.device,
+            )
+
+            sensitivities = torch.zeros(c, device=feat_ref.device)
+
+            for ch in range(c):
+                noise_base = torch.randn(
+                    self.n_steps, n, 1, h, w, device=feat_ref.device
+                )
+                channel_mean = feat_mean[:, ch : ch + 1, :, :].unsqueeze(0)
+                noise = noise_base * channel_mean * intensity_values.view(
+                    -1, 1, 1, 1, 1
+                )
+
+                noisy_ref = feat_ref.unsqueeze(0) + noise
+                noisy_dist = feat_dist.unsqueeze(0) + noise
+
+                noisy_ref_flat = noisy_ref.reshape(self.n_steps * n, c, h, w)
+                noisy_dist_flat = noisy_dist.reshape(self.n_steps * n, c, h, w)
+                noisy_scores = self._compute_score(noisy_ref_flat, noisy_dist_flat)
+                noisy_scores = noisy_scores.reshape(self.n_steps, n)
+
+                sensitivities[ch] = torch.mean(
+                    torch.abs(base_score.unsqueeze(0) - noisy_scores)
+                )
+
+            _, idx = torch.topk(sensitivities, k)
+            idx = idx.unsqueeze(0).expand(n, -1)
+            idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
+            s_ref = torch.gather(feat_ref, 1, idx_r)
+            _, _, hd, wd = feat_dist.shape
+            idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
+            s_dist = torch.gather(feat_dist, 1, idx_d)
+            return s_ref, s_dist
+
+    def _select_channels(self, feat_ref, feat_dist):
+        if self.causal_method == "gradient":
+            return self._select_gradient(feat_ref, feat_dist)
+        elif self.causal_method == "intervention":
+            return self._select_intervention(feat_ref, feat_dist)
+        else:
+            raise ValueError(f"Unknown causal_method: {self.causal_method}")
 
     def forward(self, ref, dist):
         fr = self._features(ref)
