@@ -50,8 +50,7 @@ def main():
     parser.add_argument("--patch-size", type=int, default=None)
     parser.add_argument("--input-size", type=int, default=None)
     parser.add_argument("--aggregation", type=str, default=None)
-    parser.add_argument("--max-intensity", type=float, default=None)
-    parser.add_argument("--n-steps", type=int, default=None)
+
     parser.add_argument("--diagnose", action="store_true")
     args = parser.parse_args()
 
@@ -71,10 +70,7 @@ def main():
         CFG.patch_size = args.patch_size
     if args.aggregation:
         CFG.aggregation = args.aggregation
-    if args.max_intensity is not None:
-        CFG.max_intensity = args.max_intensity
-    if args.n_steps is not None:
-        CFG.n_steps = args.n_steps
+
     CFG.diagnose = args.diagnose
 
     os.makedirs(CFG.output_dir, exist_ok=True)

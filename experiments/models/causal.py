@@ -1,10 +1,8 @@
 """Causal channel selection variant.
 
-Adopts the multi-intensity intervention approach from DeepCausalQuality:
-- Tests multiple noise intensity levels
-- Perturbs both reference and distorted features
-- Scales noise by feature magnitude
-- Selects channels by accumulated sensitivity
+Uses gradient-based sensitivity to measure each channel's causal
+influence on the quality score — equivalent to infinitesimal
+intervention but O(1) instead of O(C × n_steps).
 """
 import torch
 import torch.nn as nn
@@ -14,8 +12,8 @@ import torch.nn.functional as F
 class IDFIQA_Causal(nn.Module):
     """
     Causal channel selection variant of IDFIQA.
-    Uses multi-intensity noise intervention (inspired by DeepCausalQuality)
-    to measure per-channel sensitivity for channel selection.
+    Measures per-channel sensitivity via gradient of the quality score
+    w.r.t. features, then selects the top-k most influential channels.
     """
 
     def __init__(self, feature_extractor, normalize,
@@ -23,8 +21,6 @@ class IDFIQA_Causal(nn.Module):
                  device=None,
                  percent_features_to_keep=0.6,
                  window_size=4,
-                 max_intensity=0.1,
-                 n_steps=10,
                  xi=1e-8):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -35,8 +31,6 @@ class IDFIQA_Causal(nn.Module):
         self.feature_node_key = feature_node_key
         self.pf = percent_features_to_keep
         self.ws = window_size
-        self.max_intensity = max_intensity
-        self.n_steps = n_steps
         self.xi = xi
 
     def _features(self, img):
@@ -67,49 +61,24 @@ class IDFIQA_Causal(nn.Module):
         n, c, h, w = feat_ref.shape
         k = max(1, int(c * self.pf))
 
+        feat_ref_g = feat_ref.detach().requires_grad_(True)
+        feat_dist_g = feat_dist.detach().requires_grad_(True)
+
+        score = self._compute_score(feat_ref_g, feat_dist_g)
+        score.sum().backward()
+
+        sensitivities = (feat_ref_g.grad.abs().mean(dim=(0, 2, 3)) +
+                         feat_dist_g.grad.abs().mean(dim=(0, 2, 3)))
+
         with torch.no_grad():
-            base_score = self._compute_score(feat_ref, feat_dist)
-
-            feat_mean = (feat_ref + feat_dist) / 2
-
-            intensity_values = torch.linspace(
-                self.max_intensity / self.n_steps,
-                self.max_intensity,
-                self.n_steps,
-                device=feat_ref.device,
-            )
-
-            sensitivities = torch.zeros(c, device=feat_ref.device)
-
-            for ch in range(c):
-                noise_base = torch.randn(
-                    self.n_steps, n, 1, h, w, device=feat_ref.device
-                )
-                channel_mean = feat_mean[:, ch : ch + 1, :, :].unsqueeze(0)
-                noise = noise_base * channel_mean * intensity_values.view(
-                    -1, 1, 1, 1, 1
-                )
-
-                noisy_ref = feat_ref.unsqueeze(0) + noise
-                noisy_dist = feat_dist.unsqueeze(0) + noise
-
-                noisy_ref_flat = noisy_ref.reshape(self.n_steps * n, c, h, w)
-                noisy_dist_flat = noisy_dist.reshape(self.n_steps * n, c, h, w)
-                noisy_scores = self._compute_score(noisy_ref_flat, noisy_dist_flat)
-                noisy_scores = noisy_scores.reshape(self.n_steps, n)
-
-                sensitivities[ch] = torch.mean(
-                    torch.abs(base_score.unsqueeze(0) - noisy_scores)
-                )
-
-        _, idx = torch.topk(sensitivities, k)
-        idx = idx.unsqueeze(0).expand(n, -1)
-        idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
-        s_ref = torch.gather(feat_ref, 1, idx_r)
-        _, _, hd, wd = feat_dist.shape
-        idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
-        s_dist = torch.gather(feat_dist, 1, idx_d)
-        return s_ref, s_dist
+            _, idx = torch.topk(sensitivities, k)
+            idx = idx.unsqueeze(0).expand(n, -1)
+            idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
+            s_ref = torch.gather(feat_ref, 1, idx_r)
+            _, _, hd, wd = feat_dist.shape
+            idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
+            s_dist = torch.gather(feat_dist, 1, idx_d)
+            return s_ref, s_dist
 
     def forward(self, ref, dist):
         fr = self._features(ref)
