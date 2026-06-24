@@ -1,4 +1,5 @@
 """Causal channel selection experiment."""
+import csv
 from ..config import CFG
 from ..factories import make_causal_model
 from ..utils import out_path, save_json, already_done, compute_metrics
