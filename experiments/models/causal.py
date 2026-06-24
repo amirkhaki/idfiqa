@@ -1,4 +1,4 @@
-"""Noise-sensitivity (causal) channel selection variant."""
+"""Causal channel selection variant."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 class IDFIQA_Causal(nn.Module):
     """
-    Causal (noise-sensitivity) channel selection variant of IDFIQA.
+    Causal channel selection variant of IDFIQA.
     For each channel, adds noise and measures how much the final score changes.
     Channels with larger score delta are deemed more important.
     """

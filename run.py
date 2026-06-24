@@ -9,7 +9,7 @@ from experiments import CFG, BACKBONE_REGISTRY
 from experiments.experiments import (
     experiment_layer_search,
     experiment_baseline,
-    experiment_noise_sensitivity,
+    experiment_causal,
     experiment_patch_weighted,
     experiment_ablation_weight_source,
     experiment_ablation_aggregation,
@@ -22,7 +22,7 @@ from experiments.experiments import (
 )
 
 EXPERIMENT_CHOICES = [
-    "all", "layer_search", "baseline", "noise_sensitivity", "patch_weighted",
+    "all", "layer_search", "baseline", "causal", "patch_weighted",
     "ablation_weight_source", "ablation_aggregation", "ablation_patch_window",
     "ablation_percent_features", "backbone_comparison", "geometric_robustness",
     "complexity",
@@ -99,8 +99,8 @@ def main():
     if exp in ("all", "baseline"):
         baseline_results = experiment_baseline(all_ds, nw, force, device)
 
-    if exp in ("all", "noise_sensitivity"):
-        experiment_noise_sensitivity(all_ds, nw, force, device)
+    if exp in ("all", "causal"):
+        experiment_causal(all_ds, nw, force, device)
 
     if exp in ("all", "patch_weighted"):
         patch_results = experiment_patch_weighted(all_ds, nw, force, device)

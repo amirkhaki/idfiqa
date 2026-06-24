@@ -14,8 +14,8 @@ def make_baseline_model(device, *, backbone=None, feature_layer=None, pf=None, w
                            device=device, percent_features_to_keep=pf, window_size=ws)
 
 
-def make_noise_sensitivity_model(device, *, backbone=None, feature_layer=None,
-                                  pf=None, ws=None, noise_std=None):
+def make_causal_model(device, *, backbone=None, feature_layer=None,
+                      pf=None, ws=None, noise_std=None):
     backbone = backbone or CFG.backbone
     feature_layer = feature_layer or CFG.get_feature_layer(backbone)
     pf = pf if pf is not None else CFG.percent_features
