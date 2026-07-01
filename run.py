@@ -5,144 +5,50 @@ from datetime import datetime
 
 import torch
 
-from experiments import CFG, BACKBONE_REGISTRY
-from experiments.experiments import (
-    experiment_layer_search,
-    experiment_baseline,
-    experiment_causal,
-    experiment_spatial,
-    experiment_patch_weighted,
-    experiment_ablation_weight_source,
-    experiment_ablation_aggregation,
-    experiment_ablation_patch_window,
-    experiment_ablation_percent_features,
-    experiment_backbone_comparison,
-    experiment_geometric_robustness,
-    experiment_complexity,
-    compute_delta_table,
-)
-
-EXPERIMENT_CHOICES = [
-    "all", "layer_search", "baseline", "causal", "spatial", "patch_weighted",
-    "ablation_weight_source", "ablation_aggregation", "ablation_patch_window",
-    "ablation_percent_features", "backbone_comparison", "geometric_robustness",
-    "complexity",
-]
+from experiments.config import CFG
+from experiments.registry import list_experiments
 
 
 def main():
-    _backbone_choices = sorted(BACKBONE_REGISTRY) or ["vgg16", "efficientnet_b4"]
-
     parser = argparse.ArgumentParser(
-        description="Resumable IDFIQA experiment runner",
+        description="IDFIQA experiment runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-e", "--experiment", choices=EXPERIMENT_CHOICES, default="all")
-    parser.add_argument("-d", "--datasets", nargs="+", default=None, choices=CFG.all_datasets)
+    parser.add_argument("-d", "--datasets", nargs="+", default=None,
+                        choices=CFG.all_datasets)
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("-w", "--num-workers", type=int, default=2)
     parser.add_argument("-o", "--output-dir", type=str, default=CFG.output_dir)
-    parser.add_argument("-b", "--backbone", type=str, default=CFG.backbone, choices=_backbone_choices)
-    parser.add_argument("-B", "--backbones", nargs="+", default=None, choices=_backbone_choices)
-    parser.add_argument("-l", "--feature-layer", type=str, default=None)
-    parser.add_argument("-L", "--weight-layer", type=str, default=None)
-    parser.add_argument("-p", "--percent-features", type=float, default=None)
-    parser.add_argument("-s", "--window-size", type=int, default=None)
-    parser.add_argument("-P", "--patch-size", type=int, default=None)
-    parser.add_argument("-i", "--input-size", type=int, default=None)
-    parser.add_argument("-a", "--aggregation", type=str, default=None)
-    parser.add_argument("-c", "--causal-method", type=str, default=None,
-                        choices=["gradient", "intervention"])
-    parser.add_argument("-I", "--max-intensity", type=float, default=None)
-    parser.add_argument("-n", "--n-steps", type=int, default=None)
-    parser.add_argument("-S", "--patch-size-spatial", type=int, default=None)
-    parser.add_argument("-D", "--diagnose", action="store_true")
+
+    subparsers = parser.add_subparsers(dest="experiment")
+
+    for name, exp_cls in sorted(list_experiments().items()):
+        sub = subparsers.add_parser(name, help=exp_cls.description)
+        exp_cls().add_arguments(sub)
+
     args = parser.parse_args()
 
+    if not args.experiment:
+        parser.print_help()
+        print("\nAvailable experiments:")
+        for name, exp_cls in sorted(list_experiments().items()):
+            print(f"  {name:25s} {exp_cls.description}")
+        return
+
     CFG.output_dir = args.output_dir
-    CFG.backbone = args.backbone
-    if args.backbones:
-        CFG.comparison_backbones = args.backbones
-    if args.feature_layer:
-        CFG.feature_layer = args.feature_layer
-    if args.weight_layer:
-        CFG.weight_layer = args.weight_layer
-    if args.percent_features is not None:
-        CFG.percent_features = args.percent_features
-    if args.window_size is not None:
-        CFG.window_size = args.window_size
-    if args.patch_size is not None:
-        CFG.patch_size = args.patch_size
-    if args.aggregation:
-        CFG.aggregation = args.aggregation
-    if args.causal_method:
-        CFG.causal_method = args.causal_method
-    if args.max_intensity is not None:
-        CFG.max_intensity = args.max_intensity
-    if args.n_steps is not None:
-        CFG.n_steps = args.n_steps
-    if args.patch_size_spatial is not None:
-        CFG.patch_size_spatial = args.patch_size_spatial
-
-    CFG.diagnose = args.diagnose
-
     os.makedirs(CFG.output_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    datasets = args.datasets or CFG.all_datasets
+
     print(f"Device:     {device}")
-    print(f"Backbone:   {CFG.backbone}")
-    print(f"Registered: {sorted(BACKBONE_REGISTRY)}")
-    print(f"Comparison: {CFG.comparison_backbones}")
+    print(f"Experiment: {args.experiment}")
     print(f"Output:     {os.path.abspath(CFG.output_dir)}")
     print(f"Time:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    exp = args.experiment
-    all_ds = args.datasets or CFG.all_datasets
-    ablation_ds = args.datasets or CFG.ablation_datasets
-    nw = args.num_workers
-    force = args.force
-
-    baseline_results = {}
-    patch_results = {}
-
-    if exp in ("layer_search"):
-        experiment_layer_search(all_ds, nw, force, device)
-
-    if exp in ("all", "baseline"):
-        baseline_results = experiment_baseline(all_ds, nw, force, device)
-
-    if exp in ("all", "causal"):
-        experiment_causal(all_ds, nw, force, device)
-
-    if exp in ("all", "spatial"):
-        experiment_spatial(all_ds, nw, force, device)
-
-    if exp in ("all", "patch_weighted"):
-        patch_results = experiment_patch_weighted(all_ds, nw, force, device)
-
-    if exp == "all" and baseline_results and patch_results:
-        compute_delta_table(baseline_results, patch_results)
-
-    if exp in ("all", "ablation_weight_source"):
-        experiment_ablation_weight_source(ablation_ds, nw, force, device)
-
-    if exp in ("all", "ablation_aggregation"):
-        experiment_ablation_aggregation(ablation_ds, nw, force, device)
-
-    if exp in ("all", "ablation_patch_window"):
-        experiment_ablation_patch_window(ablation_ds, nw, force, device)
-
-    if exp in ("all", "ablation_percent_features"):
-        experiment_ablation_percent_features(ablation_ds, nw, force, device)
-
-    if exp in ("all", "backbone_comparison"):
-        experiment_backbone_comparison(all_ds, nw, force, device)
-
-    if exp in ("all", "geometric_robustness"):
-        experiment_geometric_robustness(all_ds, nw, force, device)
-
-    if exp in ("all", "complexity"):
-        experiment_complexity(force, device)
+    experiments = list_experiments()
+    exp = experiments[args.experiment]()
+    exp.run(args, datasets, args.num_workers, args.force, device)
 
     print(f"\nDone. All outputs in: {os.path.abspath(CFG.output_dir)}/")
 

@@ -2,11 +2,20 @@
 
 Two methods for measuring per-channel sensitivity:
 - "gradient": single forward+backward pass (fast, O(1))
-- "intervention": multi-intensity noise perturbation (slow, O(C × n_steps))
+- "intervention": multi-intensity noise perturbation (slow, O(C x n_steps))
 """
+import csv
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ..config import CFG
+from ..extractors import make_single_extractor
+from ..utils import out_path, save_json, already_done, compute_metrics
+from ..evaluation import run_evaluation
+from ..experiments.helpers import run_slug, run_config
+from ..registry import DefaultExperiment, register_experiment
 
 
 class IDFIQA_Causal(nn.Module):
@@ -144,3 +153,51 @@ class IDFIQA_Causal(nn.Module):
         fd = self._features(dist)
         fr, fd = self._select_channels(fr, fd)
         return self._compute_score(fr, fd)
+
+
+def _build_causal_model(device, backbone=None, feature_layer=None,
+                        pf=None, ws=None, causal_method=None,
+                        max_intensity=None, n_steps=None):
+    backbone = backbone or CFG.backbone
+    feature_layer = feature_layer or CFG.get_feature_layer(backbone)
+    pf = pf if pf is not None else CFG.percent_features
+    ws = ws if ws is not None else CFG.window_size
+    causal_method = causal_method or CFG.causal_method
+    max_intensity = max_intensity if max_intensity is not None else CFG.max_intensity
+    n_steps = n_steps if n_steps is not None else CFG.n_steps
+    ext, norm, key = make_single_extractor(backbone, feature_layer)
+    return IDFIQA_Causal(ext, norm, feature_node_key=key,
+                         device=device, percent_features_to_keep=pf,
+                         window_size=ws, causal_method=causal_method,
+                         max_intensity=max_intensity, n_steps=n_steps)
+
+
+@register_experiment
+class CausalExperiment(DefaultExperiment):
+    name = "causal"
+    description = "Causal channel selection variant"
+    summary_prefix = "causal"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--backbone", type=str, default=CFG.backbone)
+        parser.add_argument("--feature-layer", type=str, default=None)
+        parser.add_argument("--percent-features", type=float, default=CFG.percent_features)
+        parser.add_argument("--window-size", type=int, default=CFG.window_size)
+        parser.add_argument("--causal-method", type=str, default=CFG.causal_method,
+                            choices=["gradient", "intervention"])
+        parser.add_argument("--max-intensity", type=float, default=CFG.max_intensity)
+        parser.add_argument("--n-steps", type=int, default=CFG.n_steps)
+
+    def slug_args(self, args):
+        base = super().slug_args(args)
+        base["wt_layer"] = None
+        return base
+
+    def build_model(self, device, args):
+        return _build_causal_model(device, backbone=args.backbone,
+                                   feature_layer=args.feature_layer,
+                                   pf=args.percent_features,
+                                   ws=args.window_size,
+                                   causal_method=args.causal_method,
+                                   max_intensity=args.max_intensity,
+                                   n_steps=args.n_steps)

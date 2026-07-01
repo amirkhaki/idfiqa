@@ -1,6 +1,12 @@
-from .baseline import IDFIQA_Baseline
-from .causal import IDFIQA_Causal
-from .patch import WeightedPatchIDFIQA
-from .spatial import IDFIQA_SpatialCausal
+"""Model modules -- importing triggers @register_experiment."""
+from .baseline import IDFIQA_Baseline, BaselineExperiment
+from .causal import IDFIQA_Causal, CausalExperiment
+from .patch import WeightedPatchIDFIQA, PatchExperiment
+from .spatial import IDFIQA_SpatialCausal, SpatialExperiment
 
-__all__ = ["IDFIQA_Baseline", "IDFIQA_Causal", "WeightedPatchIDFIQA", "IDFIQA_SpatialCausal"]
+__all__ = [
+    "IDFIQA_Baseline", "BaselineExperiment",
+    "IDFIQA_Causal", "CausalExperiment",
+    "WeightedPatchIDFIQA", "PatchExperiment",
+    "IDFIQA_SpatialCausal", "SpatialExperiment",
+]

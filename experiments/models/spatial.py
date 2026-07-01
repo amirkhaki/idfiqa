@@ -3,9 +3,18 @@
 Measures per-region importance via gradient of the quality score
 w.r.t. input image patches.
 """
+import csv
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ..config import CFG
+from ..extractors import make_single_extractor
+from ..utils import out_path, save_json, already_done, compute_metrics
+from ..evaluation import run_evaluation
+from ..experiments.helpers import run_slug, run_config
+from ..registry import DefaultExperiment, register_experiment
 
 
 class IDFIQA_SpatialCausal(nn.Module):
@@ -103,3 +112,43 @@ class IDFIQA_SpatialCausal(nn.Module):
         if return_map:
             return final, sensitivity
         return final
+
+
+def _build_spatial_model(device, backbone=None, feature_layer=None,
+                         pf=None, ws=None, ps=None):
+    backbone = backbone or CFG.backbone
+    feature_layer = feature_layer or CFG.get_feature_layer(backbone)
+    pf = pf if pf is not None else CFG.percent_features
+    ws = ws if ws is not None else CFG.window_size
+    ps = ps if ps is not None else CFG.patch_size_spatial
+    ext, norm, key = make_single_extractor(backbone, feature_layer)
+    return IDFIQA_SpatialCausal(ext, norm, feature_node_key=key,
+                                device=device, percent_features_to_keep=pf,
+                                window_size=ws, patch_size=ps)
+
+
+@register_experiment
+class SpatialExperiment(DefaultExperiment):
+    name = "spatial"
+    description = "Spatial causal patch selection"
+    summary_prefix = "spatial"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--backbone", type=str, default=CFG.backbone)
+        parser.add_argument("--feature-layer", type=str, default=None)
+        parser.add_argument("--percent-features", type=float, default=CFG.percent_features)
+        parser.add_argument("--window-size", type=int, default=CFG.window_size)
+        parser.add_argument("--patch-size-spatial", type=int, default=CFG.patch_size_spatial)
+
+    def slug_args(self, args):
+        base = super().slug_args(args)
+        base["wt_layer"] = None
+        base["patch_size"] = args.patch_size_spatial
+        return base
+
+    def build_model(self, device, args):
+        return _build_spatial_model(device, backbone=args.backbone,
+                                   feature_layer=args.feature_layer,
+                                   pf=args.percent_features,
+                                   ws=args.window_size,
+                                   ps=args.patch_size_spatial)
