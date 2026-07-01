@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from .config import CFG
 from .utils import out_path, save_json, already_done, compute_metrics
 from .evaluation import run_evaluation
-from .experiments.helpers import run_slug, run_config
+from .helpers import run_slug, run_config
 
 _EXPERIMENTS: dict = {}
 
