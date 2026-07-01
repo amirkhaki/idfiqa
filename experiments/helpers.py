@@ -1,7 +1,7 @@
 """Shared helper functions for experiments."""
 from typing import Optional
 
-from ..config import CFG
+from .config import CFG
 
 
 def layer_slug(layer: str) -> str:
