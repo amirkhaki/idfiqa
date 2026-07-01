@@ -9,11 +9,11 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..config import CFG
-from ..dataset import TO_TENSOR, get_dataset
-from ..utils import out_path, save_json, already_done, compute_metrics
-from ..helpers import run_slug, run_config
-from ..registry import ExperimentBase, register_experiment
+from .config import CFG
+from .dataset import TO_TENSOR, get_dataset
+from .utils import out_path, save_json, already_done, compute_metrics
+from .helpers import run_slug, run_config
+from .registry import ExperimentBase, register_experiment
 from .baseline import _build_baseline_model
 from .patch import _build_patch_model
 
