@@ -10,6 +10,7 @@ class PlotExperiment(ExperimentBase):
 
     def add_arguments(self, parser):
         parser.add_argument("csv_file", type=str, help="Path to the result CSV file")
+        parser.add_argument("--swap-axes", action="store_true", help="Plot Ground Truth on Y-axis and Prediction on X-axis")
 
     def run(self, args, datasets, num_workers, force, device):
         try:
@@ -51,6 +52,13 @@ class PlotExperiment(ExperimentBase):
         from .utils import compute_metrics
         srcc, plcc = compute_metrics(y, x)
 
+        xlabel = "Ground Truth (MOS)"
+        ylabel = "Predicted Score"
+
+        if args.swap_axes:
+            x, y = y, x
+            xlabel, ylabel = ylabel, xlabel
+
         plt.figure(figsize=(8, 6))
         plt.scatter(x, y, alpha=0.6, color="blue", edgecolors="black")
         
@@ -58,8 +66,8 @@ class PlotExperiment(ExperimentBase):
         title_text += f"SRCC: {srcc:.4f} | PLCC: {plcc:.4f}"
         
         plt.title(title_text)
-        plt.xlabel("Ground Truth (MOS)")
-        plt.ylabel("Predicted Score")
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
         plt.grid(True, linestyle="--", alpha=0.7)
         
         out_path = args.csv_file.replace(".csv", "_scatter.png")
