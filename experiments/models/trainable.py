@@ -139,7 +139,7 @@ class TrainableExperiment(ExperimentBase):
                                        feature_mode=mode)
 
         if not os.path.exists(weights_path) or force:
-            self._train(model, args, num_workers, device, weights_path)
+            self._train(model, args, num_workers, device, weights_path, slug)
         else:
             print(f"  [cached] Loading trained weights from {weights_path}")
             model.load_state_dict(torch.load(weights_path, map_location=device))
@@ -168,7 +168,7 @@ class TrainableExperiment(ExperimentBase):
         print(f"  Summary -> {out_path(summary_file)}")
         return results
 
-    def _train(self, model, args, num_workers, device, weights_path):
+    def _train(self, model, args, num_workers, device, weights_path, slug):
         print(f"\n=== Training ===")
         print(f"  Dataset: {args.train_dataset}")
         print(f"  Mode: {model.feature_mode}, Loss: {args.loss}")
@@ -187,6 +187,11 @@ class TrainableExperiment(ExperimentBase):
         criterion = nn.MSELoss() if args.loss == "mse" else nn.L1Loss()
         
         best_val_loss = float("inf")
+        
+        history_train_loss = []
+        history_val_loss = []
+        history_val_srcc = []
+        history_val_plcc = []
 
         for epoch in range(args.epochs):
             model.train()
@@ -235,8 +240,43 @@ class TrainableExperiment(ExperimentBase):
                 best_val_loss = val_loss
                 torch.save(model.state_dict(), weights_path)
                 print(f"    [Saved best weights]")
+                
+            history_train_loss.append(train_loss)
+            history_val_loss.append(val_loss)
+            history_val_srcc.append(srcc)
+            history_val_plcc.append(plcc)
 
         print(f"=== Training Complete ===")
+        
+        try:
+            import matplotlib.pyplot as plt
+            epochs_range = range(1, args.epochs + 1)
+            
+            plt.figure(figsize=(12, 5))
+            
+            plt.subplot(1, 2, 1)
+            plt.plot(epochs_range, history_train_loss, label='Train Loss')
+            plt.plot(epochs_range, history_val_loss, label='Val Loss')
+            plt.title('Loss over Epochs')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend()
+            
+            plt.subplot(1, 2, 2)
+            plt.plot(epochs_range, history_val_srcc, label='Val SRCC')
+            plt.plot(epochs_range, history_val_plcc, label='Val PLCC')
+            plt.title('Metrics over Epochs')
+            plt.xlabel('Epoch')
+            plt.ylabel('Score')
+            plt.legend()
+            
+            plt.tight_layout()
+            plot_path = out_path(f"{slug}_training_curves.png")
+            plt.savefig(plot_path)
+            plt.close()
+            print(f"  Saved training curves to {plot_path}")
+        except ImportError:
+            print("  matplotlib not installed, skipping training curves plot.")
 
     def _feature_mode_search(self, args, datasets, num_workers, force, device):
         modes = ["diff", "abs_diff", "concat", "concat_diff"]
