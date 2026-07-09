@@ -3,7 +3,10 @@ from torchvision import transforms
 
 from .config import CFG
 
-TO_TENSOR = transforms.ToTensor()
+TO_TENSOR = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Resize((224, 224))
+])
 
 _IQADS_NAME_MAP = {
     "LIVE": "LIVE",
