@@ -10,20 +10,22 @@ from experiments.registry import list_experiments
 
 
 def main():
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("-d", "--datasets", nargs="+", default=None,
+                        choices=CFG.all_datasets)
+    parent_parser.add_argument("-f", "--force", action="store_true")
+    parent_parser.add_argument("-w", "--num-workers", type=int, default=2)
+    parent_parser.add_argument("-o", "--output-dir", type=str, default=CFG.output_dir)
+
     parser = argparse.ArgumentParser(
         description="IDFIQA experiment runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-d", "--datasets", nargs="+", default=None,
-                        choices=CFG.all_datasets)
-    parser.add_argument("-f", "--force", action="store_true")
-    parser.add_argument("-w", "--num-workers", type=int, default=2)
-    parser.add_argument("-o", "--output-dir", type=str, default=CFG.output_dir)
 
     subparsers = parser.add_subparsers(dest="experiment")
 
     for name, exp_cls in sorted(list_experiments().items()):
-        sub = subparsers.add_parser(name, help=exp_cls.description)
+        sub = subparsers.add_parser(name, help=exp_cls.description, parents=[parent_parser])
         exp_cls().add_arguments(sub)
 
     args = parser.parse_args()
