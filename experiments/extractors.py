@@ -10,7 +10,7 @@ def make_single_extractor(backbone: str, feature_layer: str):
     m = info["model_fn"]()
     w = info["weights"]
     ext = create_feature_extractor(m, {feature_layer: "features"})
-    return ext, w.transforms(), "features"
+    return ext, nn.Identity(), "features"
 
 
 def make_dual_extractor(backbone: str, feature_layer: str, weight_layer: str):
@@ -32,7 +32,7 @@ def make_dual_extractor(backbone: str, feature_layer: str, weight_layer: str):
                 out = self.inner(x)
                 return {"features": out["features"], "weights": out["features"]}
 
-        return _DualAlias(ext), w.transforms()
+        return _DualAlias(ext), nn.Identity()
 
     ext = create_feature_extractor(m, return_nodes)
-    return ext, w.transforms()
+    return ext, nn.Identity()
