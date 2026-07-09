@@ -48,9 +48,16 @@ class PlotExperiment(ExperimentBase):
         x = [float(r[x_col]) for r in rows]
         y = [float(r[y_col]) for r in rows]
 
+        from .utils import compute_metrics
+        srcc, plcc = compute_metrics(y, x)
+
         plt.figure(figsize=(8, 6))
         plt.scatter(x, y, alpha=0.6, color="blue", edgecolors="black")
-        plt.title(f"Scatter plot of {os.path.basename(args.csv_file)}")
+        
+        title_text = f"Scatter plot of {os.path.basename(args.csv_file)}\n"
+        title_text += f"SRCC: {srcc:.4f} | PLCC: {plcc:.4f}"
+        
+        plt.title(title_text)
         plt.xlabel("Ground Truth (MOS)")
         plt.ylabel("Predicted Score")
         plt.grid(True, linestyle="--", alpha=0.7)
