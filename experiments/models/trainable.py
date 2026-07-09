@@ -17,7 +17,6 @@ from ..evaluation import run_evaluation
 class TrainableRegressionHead(nn.Module):
     def __init__(self, in_features, hidden_dim=256):
         super().__init__()
-        self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
             nn.Linear(in_features, hidden_dim),
             nn.ReLU(),
@@ -26,18 +25,17 @@ class TrainableRegressionHead(nn.Module):
         )
 
     def forward(self, x):
-        x = self.gap(x).view(x.size(0), -1)
         return self.fc(x).squeeze(-1)
 
 
 class IDFIQA_Trainable(nn.Module):
     """
     Model with a frozen feature extractor and a trainable regression head.
-    Allows for different 'feature modes' (e.g., diff, concat).
+    Allows for different 'feature modes' (e.g., diff, concat) and aggregations.
     """
 
     def __init__(self, feature_extractor, normalize, feature_node_key="features",
-                 device=None, feature_mode="concat"):
+                 device=None, feature_mode="concat", aggregation="gap"):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.feature_extractor = feature_extractor.to(self.device).eval()
@@ -46,21 +44,14 @@ class IDFIQA_Trainable(nn.Module):
         self.normalize = normalize
         self.feature_node_key = feature_node_key
         self.feature_mode = feature_mode
+        self.aggregation = aggregation
 
-        # Determine in_channels by passing a dummy tensor
-        dummy = torch.randn(1, 3, 224, 224).to(self.device)
+        # Determine in_features by passing a dummy tensor
+        dummy_ref = torch.randn(1, 3, 224, 224).to(self.device)
+        dummy_dist = torch.randn(1, 3, 224, 224).to(self.device)
         with torch.no_grad():
-            feat = self._features(dummy)
-            channels = feat.shape[1]
-
-        if feature_mode in ["diff", "abs_diff"]:
-            in_features = channels
-        elif feature_mode == "concat":
-            in_features = channels * 2
-        elif feature_mode == "concat_diff":
-            in_features = channels * 3
-        else:
-            raise ValueError(f"Unknown feature mode: {feature_mode}")
+            feat = self.forward_features(dummy_ref, dummy_dist)
+            in_features = feat.shape[1]
 
         self.head = TrainableRegressionHead(in_features).to(self.device)
 
@@ -68,9 +59,23 @@ class IDFIQA_Trainable(nn.Module):
         out = self.feature_extractor(self.normalize(img.to(self.device)))
         return out[self.feature_node_key] if isinstance(out, dict) else out
 
-    def forward(self, ref, dist):
-        fr = self._features(ref)
-        fd = self._features(dist)
+    def _aggregate(self, feat):
+        if self.aggregation == "gap":
+            return feat.mean(dim=[2, 3])
+        elif self.aggregation == "gram":
+            B, C, H, W = feat.size()
+            feat_flat = feat.view(B, C, H * W)
+            gram = torch.bmm(feat_flat, feat_flat.transpose(1, 2)) / (H * W)
+            return gram.view(B, -1)
+        else:
+            raise ValueError(f"Unknown aggregation: {self.aggregation}")
+
+    def forward_features(self, ref, dist):
+        fr_raw = self._features(ref)
+        fd_raw = self._features(dist)
+
+        fr = self._aggregate(fr_raw)
+        fd = self._aggregate(fd_raw)
 
         if self.feature_mode == "diff":
             feat = fd - fr
@@ -82,27 +87,31 @@ class IDFIQA_Trainable(nn.Module):
             feat = torch.cat([fd, fr, fd - fr], dim=1)
         else:
             raise ValueError(f"Unknown feature mode: {self.feature_mode}")
+        return feat
 
+    def forward(self, ref, dist):
+        feat = self.forward_features(ref, dist)
         return self.head(feat)
 
 
-def _build_trainable_model(device, backbone=None, feature_layer=None, feature_mode="concat"):
+def _build_trainable_model(device, backbone=None, feature_layer=None, feature_mode="concat", aggregation="gap"):
     backbone = backbone or CFG.backbone
     feature_layer = feature_layer or CFG.get_feature_layer(backbone)
     ext, norm, key = make_single_extractor(backbone, feature_layer)
-    return IDFIQA_Trainable(ext, norm, feature_node_key=key, device=device, feature_mode=feature_mode)
+    return IDFIQA_Trainable(ext, norm, feature_node_key=key, device=device, feature_mode=feature_mode, aggregation=aggregation)
 
 
 @register_experiment
 class TrainableExperiment(ExperimentBase):
     name = "trainable"
-    description = "Trainable model with regression head and varying feature modes"
+    description = "Trainable model with regression head and varying feature modes / aggregations"
 
     def add_arguments(self, parser):
         parser.add_argument("--backbone", type=str, default=CFG.backbone)
         parser.add_argument("--feature-layer", type=str, default=None)
         parser.add_argument("--feature-mode", type=str, default="concat",
                             choices=["diff", "abs_diff", "concat", "concat_diff"])
+        parser.add_argument("--aggregation", type=str, default="gap", choices=["gap", "gram"])
         parser.add_argument("--loss", type=str, default="mse", choices=["mse", "l1"])
         
         # Training arguments
@@ -116,11 +125,12 @@ class TrainableExperiment(ExperimentBase):
         sub.add_parser("train", help="Train the model on the train-dataset")
         sub.add_parser("feature_mode_search", help="Sweep over all feature modes to find the best configuration")
 
-    def _get_slug(self, args, mode_override=None):
+    def _get_slug(self, args, mode_override=None, agg_override=None):
         mode = mode_override or args.feature_mode
+        agg = agg_override or args.aggregation
         feat_layer = args.feature_layer or CFG.get_feature_layer(args.backbone)
         safe_feat = feat_layer.replace(".", "_")
-        return f"trainable_{args.backbone}_{safe_feat}_{mode}_{args.loss}_{args.train_dataset}"
+        return f"trainable_{args.backbone}_{safe_feat}_{agg}_{mode}_{args.loss}_{args.train_dataset}"
 
     def run(self, args, datasets, num_workers, force, device):
         if hasattr(args, "action") and args.action == "feature_mode_search":
@@ -129,14 +139,15 @@ class TrainableExperiment(ExperimentBase):
             # Default action is train and then evaluate
             self._train_and_evaluate(args, datasets, num_workers, force, device)
 
-    def _train_and_evaluate(self, args, datasets, num_workers, force, device, mode_override=None):
+    def _train_and_evaluate(self, args, datasets, num_workers, force, device, mode_override=None, agg_override=None):
         mode = mode_override or args.feature_mode
-        slug = self._get_slug(args, mode_override=mode)
+        agg = agg_override or args.aggregation
+        slug = self._get_slug(args, mode_override=mode, agg_override=agg)
         weights_path = out_path(f"{slug}_best.pt")
 
         model = _build_trainable_model(device, backbone=args.backbone, 
                                        feature_layer=args.feature_layer, 
-                                       feature_mode=mode)
+                                       feature_mode=mode, aggregation=agg)
 
         if not os.path.exists(weights_path) or force:
             self._train(model, args, num_workers, device, weights_path, slug)
@@ -280,12 +291,14 @@ class TrainableExperiment(ExperimentBase):
 
     def _feature_mode_search(self, args, datasets, num_workers, force, device):
         modes = ["diff", "abs_diff", "concat", "concat_diff"]
+        aggregations = ["gap", "gram"]
         print(f"\n=== Feature Mode Search ===")
         all_results = {}
-        for mode in modes:
-            print(f"\n--- Mode: {mode} ---")
-            res = self._train_and_evaluate(args, datasets, num_workers, force, device, mode_override=mode)
-            all_results[mode] = res
+        for agg in aggregations:
+            for mode in modes:
+                print(f"\n--- Aggregation: {agg} | Mode: {mode} ---")
+                res = self._train_and_evaluate(args, datasets, num_workers, force, device, mode_override=mode, agg_override=agg)
+                all_results[f"{agg}_{mode}"] = res
 
         summary_path = f"trainable_{args.backbone}_feature_mode_search.json"
         save_json(all_results, summary_path)
