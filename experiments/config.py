@@ -120,7 +120,7 @@ class Config:
     ablation_aggregations: List[str] = field(default_factory=lambda: [
         "max", "mean", "softmax_0.5", "softmax_1.0", "softmax_2.0", "uniform"
     ])
-    all_datasets: List[str] = field(default_factory=lambda: ["LIVE", "CSIQ", "TID2013", "KADID", "PIPAL"])
+    all_datasets: List[str] = field(default_factory=lambda: ["LIVE", "CSIQ", "TID2013", "KADID", "PIPAL", "AIC4"])
     ablation_datasets: List[str] = field(default_factory=lambda: ["TID2013"])
     large_datasets: List[str] = field(default_factory=lambda: ["KADID", "PIPAL"])
     complexity_image_size: tuple = (512, 512)
