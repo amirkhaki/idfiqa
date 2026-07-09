@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .config import CFG
-from .dataset import TO_TENSOR, get_dataset
+from .dataset import get_dataset
 from .utils import out_path, save_json, already_done, compute_metrics
 from .helpers import run_slug, run_config
 from .registry import ExperimentBase, register_experiment
@@ -85,16 +85,12 @@ class ComplexityExperiment(ExperimentBase):
 def _apply_geometric_distortion(img_tensor, shift_px=5, angle_deg=2,
                                 scale_range=(0.95, 1.05)):
     import torchvision.transforms.functional as TF
-    pil = transforms.ToPILImage()(img_tensor.squeeze(0))
-    _, h = pil.size[0], pil.size[1]
-    w_px = pil.size[0]
     dx = random.uniform(-shift_px, shift_px)
     dy = random.uniform(-shift_px, shift_px)
     angle = random.uniform(-angle_deg, angle_deg)
     s = random.uniform(*scale_range)
-    pil = TF.affine(pil, angle=angle, translate=(dx, dy), scale=s, shear=0)
-    pil = TF.center_crop(pil, (h, w_px))
-    return TO_TENSOR(pil).unsqueeze(0)
+    out = TF.affine(img_tensor, angle=angle, translate=[int(dx), int(dy)], scale=s, shear=0.0)
+    return out
 
 
 @register_experiment
