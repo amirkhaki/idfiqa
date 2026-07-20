@@ -77,6 +77,8 @@ class ToolAugmentedBaseline(nn.Module):
         return torch.stack(layer_scores, dim=0).mean(dim=0)
 
     def forward(self, ref, dist):
+        ref = torch.clamp(ref, 0.0, 1.0)
+        dist = torch.clamp(dist, 0.0, 1.0)
         # 1. Original View
         score_orig = self._base_score(ref, dist)
         
@@ -118,7 +120,7 @@ class AugmentedExperiment(DefaultExperiment):
     summary_prefix = "augmented"
 
     def add_arguments(self, parser):
-        parser.add_argument("--backbone", type=str, default="vgg16")
+        parser.add_argument("--backbone", type=str, default="alexnet")
         parser.add_argument("--percent-features", type=float, default=1.0)
         parser.add_argument("--window-size", type=int, default=4)
 
