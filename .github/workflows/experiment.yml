@@ -1,0 +1,39 @@
+name: IDFIQA Experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Command to run'
+        required: true
+        default: 'python run.py --help'
+        type: string
+
+jobs:
+  run-experiment:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run command
+        run: |
+          # Source conda and activate the dd environment
+          source $HOME/miniconda3/etc/profile.d/conda.sh
+          conda activate dd
+          
+          # Set the dataset root to the absolute path
+          export IDFIQA_DATASET_ROOT="$HOME/idfiqa/datasets"
+          
+          # Execute the command provided by the agent
+          echo "Running command: ${{ inputs.command }}"
+          ${{ inputs.command }} 2>&1 | tee run_output.log
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: experiment-results
+          path: |
+            results/
+            run_output.log

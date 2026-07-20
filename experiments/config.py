@@ -97,7 +97,7 @@ def get_all_feature_nodes(backbone: str) -> Dict[str, str]:
 
 @dataclass
 class Config:
-    dataset_root: str = "datasets"
+    dataset_root: str = os.environ.get("IDFIQA_DATASET_ROOT", "datasets")
     output_dir: str = "results"
     backbone: str = "vgg16"
     feature_layer: Optional[str] = None
