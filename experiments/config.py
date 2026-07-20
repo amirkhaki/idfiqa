@@ -113,7 +113,7 @@ class Config:
 
     large_ds_threshold: int = 1000
     large_ds_n_samples: int = 1000
-    large_ds_n_runs: int = 5
+    large_ds_n_runs: int = 1
     ablation_patch_sizes: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
     ablation_window_sizes: List[int] = field(default_factory=lambda: [2, 4, 6, 8])
     ablation_pf_values: List[float] = field(default_factory=lambda: [0.4, 0.5, 0.6, 0.7, 0.8])

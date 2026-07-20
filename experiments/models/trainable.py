@@ -46,8 +46,17 @@ class IDFIQA_Trainable(nn.Module):
         self.feature_mode = feature_mode
         self.aggregation = aggregation
 
-        # Determine in_features by passing a dummy tensor
+        # Determine raw in_features
         dummy_ref = torch.randn(1, 3, 224, 224).to(self.device)
+        with torch.no_grad():
+            raw_feat = self._features(dummy_ref)
+            raw_c = raw_feat.shape[1]
+            
+        self.dim_reduce = nn.Identity()
+        if self.aggregation in ["gram", "gap_gram"]:
+            reduced_c = 64
+            self.dim_reduce = nn.Conv2d(raw_c, reduced_c, kernel_size=1).to(self.device)
+
         dummy_dist = torch.randn(1, 3, 224, 224).to(self.device)
         with torch.no_grad():
             feat = self.forward_features(dummy_ref, dummy_dist)
@@ -60,13 +69,20 @@ class IDFIQA_Trainable(nn.Module):
         return out[self.feature_node_key] if isinstance(out, dict) else out
 
     def _aggregate(self, feat):
+        feat = self.dim_reduce(feat)
+        B, C, H, W = feat.size()
+        
         if self.aggregation == "gap":
             return feat.mean(dim=[2, 3])
         elif self.aggregation == "gram":
-            B, C, H, W = feat.size()
             feat_flat = feat.view(B, C, H * W)
             gram = torch.bmm(feat_flat, feat_flat.transpose(1, 2)) / (H * W)
             return gram.view(B, -1)
+        elif self.aggregation == "gap_gram":
+            gap = feat.mean(dim=[2, 3])
+            feat_flat = feat.view(B, C, H * W)
+            gram = torch.bmm(feat_flat, feat_flat.transpose(1, 2)) / (H * W)
+            return torch.cat([gap, gram.view(B, -1)], dim=1)
         else:
             raise ValueError(f"Unknown aggregation: {self.aggregation}")
 
@@ -111,7 +127,7 @@ class TrainableExperiment(ExperimentBase):
         parser.add_argument("--feature-layer", type=str, default=None)
         parser.add_argument("--feature-mode", type=str, default="concat",
                             choices=["diff", "abs_diff", "concat", "concat_diff"])
-        parser.add_argument("--aggregation", type=str, default="gap", choices=["gap", "gram"])
+        parser.add_argument("--aggregation", type=str, default="gap", choices=["gap", "gram", "gap_gram"])
         parser.add_argument("--loss", type=str, default="mse", choices=["mse", "l1"])
         
         # Training arguments
@@ -195,7 +211,8 @@ class TrainableExperiment(ExperimentBase):
         train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=num_workers)
         val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
-        optimizer = torch.optim.Adam(model.head.parameters(), lr=args.lr)
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.Adam(trainable_params, lr=args.lr)
         criterion = nn.MSELoss() if args.loss == "mse" else nn.L1Loss()
         
         best_val_loss = float("inf")
@@ -295,7 +312,7 @@ class TrainableExperiment(ExperimentBase):
 
     def _feature_mode_search(self, args, datasets, num_workers, force, device):
         modes = ["diff", "abs_diff", "concat", "concat_diff"]
-        aggregations = ["gap", "gram"]
+        aggregations = ["gap", "gram", "gap_gram"]
         print(f"\n=== Feature Mode Search ===")
         all_results = {}
         for agg in aggregations:
