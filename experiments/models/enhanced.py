@@ -10,7 +10,7 @@ from ..registry import DefaultExperiment, register_experiment
 
 class IDFIQA_Enhanced(nn.Module):
     """
-    Enhanced IDFIQA using multi-layer Gram local similarity and Cosine similarity.
+    Enhanced IDFIQA using Full SSIM on multi-layer Gram matrices.
     """
 
     def __init__(self, feature_extractor, normalize,
@@ -58,8 +58,7 @@ class IDFIQA_Enhanced(nn.Module):
             fr = out_r[k]
             fd = out_d[k]
             
-            if self.pf < 1.0:
-                fr, fd = self._select_channels(fr, fd)
+            fr, fd = self._select_channels(fr, fd)
                 
             gr = self._gram(fr)
             gd = self._gram(fd)
@@ -68,26 +67,27 @@ class IDFIQA_Enhanced(nn.Module):
             if C < self.ws:
                 continue
                 
-            # Baseline Gram local
+            # Full SSIM on Gram matrix patches
             gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
             gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
             
             vr = torch.var(gr_u, dim=2, unbiased=False)
             vd = torch.var(gd_u, dim=2, unbiased=False)
-            mr = torch.mean(gr_u, dim=2, keepdim=True)
-            md = torch.mean(gd_u, dim=2, keepdim=True)
-            cov = torch.mean((gr_u - mr) * (gd_u - md), dim=2)
+            mr = torch.mean(gr_u, dim=2)
+            md = torch.mean(gd_u, dim=2)
+            cov = torch.mean((gr_u - mr.unsqueeze(2)) * (gd_u - md.unsqueeze(2)), dim=2)
             
-            local = (2 * cov + self.xi) / (vr + vd + self.xi)
+            # Variance/Covariance similarity (from Baseline)
+            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+            
+            # Mean similarity (added for completeness of SSIM)
+            s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+            
+            # Combine
+            local = s_mean * s_var
             score_gram = local.mean(dim=1)
             
-            # Spatial cosine similarity
-            fr_norm = F.normalize(fr, p=2, dim=1)
-            fd_norm = F.normalize(fd, p=2, dim=1)
-            score_spatial = (fr_norm * fd_norm).sum(dim=1).mean(dim=(1, 2))
-            
-            # Hybrid
-            layer_scores.append(0.5 * score_gram + 0.5 * score_spatial)
+            layer_scores.append(score_gram)
             
         # Average across all selected layers
         return torch.stack(layer_scores, dim=0).mean(dim=0)
@@ -98,11 +98,8 @@ def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
     pf = pf if pf is not None else CFG.percent_features
     ws = ws if ws is not None else 4
     
-    # Use deeper layers for better semantics
-    if backbone == "vgg16":
-        feature_layers = ["features.15", "features.22", "features.29"]
-    else:
-        feature_layers = [CFG.get_feature_layer(backbone)]
+    # Use evenly spaced layers across the network
+    feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
 
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Enhanced(ext, norm,
@@ -112,7 +109,7 @@ def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
 @register_experiment
 class EnhancedSSIMExperiment(DefaultExperiment):
     name = "enhanced"
-    description = "Enhanced Deep-layer Hybrid"
+    description = "Enhanced Full Gram SSIM"
     summary_prefix = "enhanced"
 
     def add_arguments(self, parser):
