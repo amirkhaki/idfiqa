@@ -1,22 +1,23 @@
-"""Enhanced unweighted DISTS IDFIQA model."""
+"""Enhanced spatial SSIM IDFIQA model."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..config import CFG, get_all_feature_nodes
+from ..config import CFG
 from ..extractors import make_multi_extractor
 from ..registry import DefaultExperiment, register_experiment
 
 
 class IDFIQA_Enhanced(nn.Module):
     """
-    Enhanced IDFIQA using unweighted DISTS-like global structural similarity.
+    Enhanced IDFIQA using multi-layer Gram local similarity and Cosine similarity.
     """
 
     def __init__(self, feature_extractor, normalize,
                  device=None,
-                 percent_features_to_keep=1.0,
-                 xi=1e-6):
+                 percent_features_to_keep=0.6,
+                 window_size=4,
+                 xi=1e-8):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.feature_extractor = feature_extractor.to(self.device).eval()
@@ -24,12 +25,17 @@ class IDFIQA_Enhanced(nn.Module):
             p.requires_grad = False
         self.normalize = normalize
         self.pf = percent_features_to_keep
+        self.ws = window_size
         self.xi = xi
+
+    def _gram(self, feat):
+        n, c, h, w = feat.shape
+        f = feat.view(n, c, h * w)
+        return torch.bmm(f, f.transpose(1, 2)) / (h * w)
 
     def _select_channels(self, feat_ref, feat_dist):
         if self.pf >= 1.0:
             return feat_ref, feat_dist
-            
         n, c, h, w = feat_ref.shape
         k = max(1, int(c * self.pf))
         var = torch.var(feat_ref, dim=(2, 3), unbiased=False)
@@ -52,56 +58,69 @@ class IDFIQA_Enhanced(nn.Module):
             fr = out_r[k]
             fd = out_d[k]
             
-            fr, fd = self._select_channels(fr, fd)
+            if self.pf < 1.0:
+                fr, fd = self._select_channels(fr, fd)
                 
-            # Global spatial mean and variance per channel
-            mu_r = fr.mean(dim=(2, 3), keepdim=True)
-            mu_d = fd.mean(dim=(2, 3), keepdim=True)
+            gr = self._gram(fr)
+            gd = self._gram(fd)
             
-            var_r = ((fr - mu_r) ** 2).mean(dim=(2, 3), keepdim=True)
-            var_d = ((fd - mu_d) ** 2).mean(dim=(2, 3), keepdim=True)
+            C = gr.shape[-1]
+            if C < self.ws:
+                continue
+                
+            # Baseline Gram local
+            gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
+            gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
             
-            cov_rd = ((fr - mu_r) * (fd - mu_d)).mean(dim=(2, 3), keepdim=True)
+            vr = torch.var(gr_u, dim=2, unbiased=False)
+            vd = torch.var(gd_u, dim=2, unbiased=False)
+            mr = torch.mean(gr_u, dim=2, keepdim=True)
+            md = torch.mean(gd_u, dim=2, keepdim=True)
+            cov = torch.mean((gr_u - mr) * (gd_u - md), dim=2)
             
-            # Structure and texture similarity
-            s_mean = (2 * mu_r * mu_d + self.xi) / (mu_r ** 2 + mu_d ** 2 + self.xi)
-            s_var = (2 * cov_rd + self.xi) / (var_r + var_d + self.xi)
+            local = (2 * cov + self.xi) / (vr + vd + self.xi)
+            score_gram = local.mean(dim=1)
             
-            # Combine similarities (mean over spatial dimension is already done, just mean over channels)
-            layer_sim = (s_mean.mean(dim=(1, 2, 3)) + s_var.mean(dim=(1, 2, 3))) / 2.0
-            layer_scores.append(layer_sim)
+            # Spatial cosine similarity
+            fr_norm = F.normalize(fr, p=2, dim=1)
+            fd_norm = F.normalize(fd, p=2, dim=1)
+            score_spatial = (fr_norm * fd_norm).sum(dim=1).mean(dim=(1, 2))
+            
+            # Hybrid
+            layer_scores.append(0.5 * score_gram + 0.5 * score_spatial)
             
         # Average across all selected layers
         return torch.stack(layer_scores, dim=0).mean(dim=0)
 
 
-def _build_enhanced_model(device, backbone=None, pf=None):
+def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
     backbone = backbone or CFG.backbone
-    pf = pf if pf is not None else 1.0
+    pf = pf if pf is not None else CFG.percent_features
+    ws = ws if ws is not None else 4
     
-    # Use evenly spaced layers from the backbone
-    all_nodes = list(get_all_feature_nodes(backbone).keys())
-    # Take 5 layers uniformly distributed across depth
-    if len(all_nodes) >= 5:
-        step = len(all_nodes) / 5.0
-        feature_layers = [all_nodes[int(i * step)] for i in range(5)]
+    # Use deeper layers for better semantics
+    if backbone == "vgg16":
+        feature_layers = ["features.15", "features.22", "features.29"]
     else:
-        feature_layers = all_nodes
+        feature_layers = [CFG.get_feature_layer(backbone)]
 
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Enhanced(ext, norm,
-                           device=device, percent_features_to_keep=pf)
+                           device=device, percent_features_to_keep=pf, window_size=ws)
 
 
 @register_experiment
 class EnhancedSSIMExperiment(DefaultExperiment):
     name = "enhanced"
-    description = "Enhanced Multi-layer Unweighted DISTS"
+    description = "Enhanced Deep-layer Hybrid"
     summary_prefix = "enhanced"
 
     def add_arguments(self, parser):
         parser.add_argument("--backbone", type=str, default=CFG.backbone)
-        parser.add_argument("--percent-features", type=float, default=1.0)
+        parser.add_argument("--percent-features", type=float, default=CFG.percent_features)
+        parser.add_argument("--window-size", type=int, default=4)
 
     def build_model(self, device, args):
-        return _build_enhanced_model(device, backbone=args.backbone, pf=args.percent_features)
+        return _build_enhanced_model(device, backbone=args.backbone,
+                                     pf=args.percent_features,
+                                     ws=args.window_size)
