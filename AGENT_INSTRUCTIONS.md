@@ -1,5 +1,7 @@
 # Running Experiments via Self-Hosted Runner
 
+**IMPORTANT: Running locally is not possible AT ALL. You must use the self-hosted runner.**
+
 This repository is configured with a self-hosted GitHub Actions runner to automate the execution of IDFIQA experiments. The runner is connected to a powerful server with GPU access, and handles dataset mounting and environment setup automatically.
 
 ## Triggering an Experiment

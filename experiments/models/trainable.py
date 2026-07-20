@@ -120,6 +120,7 @@ class TrainableExperiment(ExperimentBase):
         parser.add_argument("--epochs", type=int, default=10)
         parser.add_argument("--lr", type=float, default=1e-4)
         parser.add_argument("--batch-size", type=int, default=4)
+        parser.add_argument("--no-save-weights", action="store_true", help="Do not save the model weights (.pt files)")
 
         sub = parser.add_subparsers(dest="action")
         sub.add_parser("train", help="Train the model on the train-dataset")
@@ -249,8 +250,11 @@ class TrainableExperiment(ExperimentBase):
             
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), weights_path)
-                print(f"    [Saved best weights]")
+                if getattr(args, "no_save_weights", False):
+                    print(f"    [Best validation loss improved, skipping weight save]")
+                else:
+                    torch.save(model.state_dict(), weights_path)
+                    print(f"    [Saved best weights]")
                 
             history_train_loss.append(train_loss)
             history_val_loss.append(val_loss)
