@@ -212,7 +212,7 @@ class TrainableExperiment(ExperimentBase):
         val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
         trainable_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(trainable_params, lr=args.lr)
+        optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=1e-4)
         criterion = nn.MSELoss() if args.loss == "mse" else nn.L1Loss()
         
         best_val_loss = float("inf")
