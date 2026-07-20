@@ -10,7 +10,7 @@ from ..registry import DefaultExperiment, register_experiment
 class ToolAugmentedBaseline(nn.Module):
     """
     Applies the Tool-IQA concepts (Gamma Corrector and Magnifier) 
-    to the IDFIQA Baseline metric across multiple layers.
+    to an unweighted DISTS+LPIPS metric.
     """
 
     def __init__(self, feature_extractor, normalize,
@@ -27,12 +27,6 @@ class ToolAugmentedBaseline(nn.Module):
         self.pf = percent_features_to_keep
         self.ws = window_size
         self.xi = xi
-
-    @staticmethod
-    def _gram(feat):
-        n, c, h, w = feat.shape
-        f = feat.view(n, c, h * w)
-        return torch.bmm(f, f.transpose(1, 2)) / (h * w)
 
     def _select_channels(self, feat_ref, feat_dist):
         if self.pf >= 1.0:
@@ -62,17 +56,24 @@ class ToolAugmentedBaseline(nn.Module):
             if self.pf < 1.0:
                 fr, fd = self._select_channels(fr, fd)
                 
-            gr = self._gram(fr)
-            gd = self._gram(fd)
-            gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
-            gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
-            vr = torch.var(gr_u, dim=2, unbiased=False)
-            vd = torch.var(gd_u, dim=2, unbiased=False)
-            mr = torch.mean(gr_u, dim=2, keepdim=True)
-            md = torch.mean(gd_u, dim=2, keepdim=True)
-            cov = torch.mean((gr_u - mr) * (gd_u - md), dim=2)
-            local = (2 * cov + self.xi) / (vr + vd + self.xi)
-            layer_scores.append(local.mean(dim=1))
+            # Unweighted DISTS
+            mr = torch.mean(fr, dim=(2, 3))
+            md = torch.mean(fd, dim=(2, 3))
+            vr = torch.var(fr, dim=(2, 3), unbiased=False)
+            vd = torch.var(fd, dim=(2, 3), unbiased=False)
+            cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) * (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
+            
+            s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+            dists_score = (s_mean * s_var).mean(dim=1)
+            
+            # Unweighted LPIPS
+            fr_norm = F.normalize(fr, p=2, dim=1)
+            fd_norm = F.normalize(fd, p=2, dim=1)
+            lpips_score = 1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3))
+            
+            score = 0.5 * dists_score + 0.5 * lpips_score
+            layer_scores.append(score)
             
         return torch.stack(layer_scores, dim=0).mean(dim=0)
 
@@ -94,8 +95,6 @@ class ToolAugmentedBaseline(nn.Module):
         score_mag = self._base_score(ref[:, :, ch:H-ch, cw:W-cw], 
                                      dist[:, :, ch:H-ch, cw:W-cw])
         
-        # We also include a DISTS/LPIPS term to capture structural properties globally
-        # Because Gamma + Magnifier makes it very robust
         return (score_orig + score_gamma_dark + score_gamma_bright + score_mag) / 4.0
 
 
@@ -116,7 +115,7 @@ def _build_augmented_model(device, backbone=None, pf=None, ws=None):
 @register_experiment
 class AugmentedExperiment(DefaultExperiment):
     name = "augmented"
-    description = "Tool-Augmented Baseline"
+    description = "Tool-Augmented Baseline with DISTS/LPIPS"
     summary_prefix = "augmented"
 
     def add_arguments(self, parser):
