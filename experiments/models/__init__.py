@@ -6,7 +6,7 @@ from .spatial import IDFIQA_SpatialCausal, SpatialExperiment
 from .trainable import IDFIQA_Trainable, TrainableExperiment
 from .hhsim import HHSIMModel, HHSIMExperiment
 from .enhanced import IDFIQA_Enhanced, EnhancedSSIMExperiment
-
+from .augmented import ToolAugmentedBaseline, AugmentedExperiment
 __all__ = [
     "IDFIQA_Baseline", "BaselineExperiment",
     "IDFIQA_Causal", "CausalExperiment",
