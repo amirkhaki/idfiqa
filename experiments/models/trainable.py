@@ -55,7 +55,10 @@ class IDFIQA_Trainable(nn.Module):
         self.dim_reduce = nn.Identity()
         if self.aggregation in ["gram", "gap_gram"]:
             reduced_c = 64
-            self.dim_reduce = nn.Conv2d(raw_c, reduced_c, kernel_size=1).to(self.device)
+            self.dim_reduce = nn.Sequential(
+                nn.Conv2d(raw_c, reduced_c, kernel_size=1),
+                nn.ReLU()
+            ).to(self.device)
 
         dummy_dist = torch.randn(1, 3, 224, 224).to(self.device)
         with torch.no_grad():
@@ -68,18 +71,18 @@ class IDFIQA_Trainable(nn.Module):
         out = self.feature_extractor(self.normalize(img.to(self.device)))
         return out[self.feature_node_key] if isinstance(out, dict) else out
 
-    def _aggregate(self, feat):
-        feat = self.dim_reduce(feat)
+    def _aggregate(self, feat_raw):
+        feat = self.dim_reduce(feat_raw)
         B, C, H, W = feat.size()
         
         if self.aggregation == "gap":
-            return feat.mean(dim=[2, 3])
+            return feat_raw.mean(dim=[2, 3])
         elif self.aggregation == "gram":
             feat_flat = feat.view(B, C, H * W)
             gram = torch.bmm(feat_flat, feat_flat.transpose(1, 2)) / (H * W)
             return gram.view(B, -1)
         elif self.aggregation == "gap_gram":
-            gap = feat.mean(dim=[2, 3])
+            gap = feat_raw.mean(dim=[2, 3])
             feat_flat = feat.view(B, C, H * W)
             gram = torch.bmm(feat_flat, feat_flat.transpose(1, 2)) / (H * W)
             return torch.cat([gap, gram.view(B, -1)], dim=1)
