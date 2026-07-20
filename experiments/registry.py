@@ -79,7 +79,7 @@ class DefaultExperiment(ExperimentBase):
         prefix = self.summary_prefix or self.name
 
         print(f"  backbone={slug_kwargs['backbone']}  feat={slug_kwargs['feature_layer']}"
-              + (f"  pf={args.percent_features}  ws={args.window_size}"
+              + (f"  pf={args.percent_features}  ws={getattr(args, 'window_size', 'None')}"
                  if hasattr(args, "percent_features") else ""))
 
         summary_file = f"{prefix}_{slug}_summary.json"
