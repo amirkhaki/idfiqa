@@ -25,6 +25,11 @@ def _build_registry() -> Dict[str, dict]:
              _m.VGG16_Weights.IMAGENET1K_V1,
              "features.23", "features.19")
 
+        _add("alexnet",
+             lambda: _m.alexnet(weights=_m.AlexNet_Weights.IMAGENET1K_V1),
+             _m.AlexNet_Weights.IMAGENET1K_V1,
+             "features.8", "features.6")
+
         _add("efficientnet_b0",
              lambda: _m.efficientnet_b0(weights=_m.EfficientNet_B0_Weights.IMAGENET1K_V1),
              _m.EfficientNet_B0_Weights.IMAGENET1K_V1,
@@ -69,7 +74,7 @@ def _registry_info(backbone: str) -> dict:
 
 
 def _is_feature_node(name: str) -> bool:
-    return name in [f"features.{d}" for d in range(1, 30, 2)]
+    return name.startswith("features.")
 
 
 _NODE_CACHE: Dict[str, Dict[str, str]] = {}

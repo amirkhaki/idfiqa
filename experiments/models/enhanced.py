@@ -1,4 +1,4 @@
-"""Enhanced spatial SSIM IDFIQA model."""
+"""Enhanced IDFIQA model combining DISTS and LPIPS concepts."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,14 +10,14 @@ from ..registry import DefaultExperiment, register_experiment
 
 class IDFIQA_Enhanced(nn.Module):
     """
-    Enhanced IDFIQA using Spatial SSIM on raw feature maps.
-    This avoids Gram matrices, which are easily fooled by GAN distortions in PIPAL.
+    Enhanced IDFIQA using unweighted DISTS (Global Spatial SSIM) 
+    and unweighted LPIPS (Normalized L2 Distance).
     """
 
     def __init__(self, feature_extractor, normalize,
                  device=None,
                  percent_features_to_keep=1.0,
-                 window_size=7,
+                 window_size=None,
                  xi=1e-8):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,7 +26,6 @@ class IDFIQA_Enhanced(nn.Module):
             p.requires_grad = False
         self.normalize = normalize
         self.pf = percent_features_to_keep
-        self.ws = window_size
         self.xi = xi
 
     def _select_channels(self, feat_ref, feat_dist):
@@ -57,38 +56,26 @@ class IDFIQA_Enhanced(nn.Module):
             if self.pf < 1.0:
                 fr, fd = self._select_channels(fr, fd)
             
-            N, C, H, W = fr.shape
-            if H < self.ws or W < self.ws:
-                # If feature map is too small, just do global SSIM
-                mr = torch.mean(fr, dim=(2, 3))
-                md = torch.mean(fd, dim=(2, 3))
-                vr = torch.var(fr, dim=(2, 3), unbiased=False)
-                vd = torch.var(fd, dim=(2, 3), unbiased=False)
-                cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) * (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
-                
-                s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
-                s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
-                score = (s_mean * s_var).mean(dim=1)
-                layer_scores.append(score)
-                continue
-                
-            # Local spatial SSIM on the features
-            fr_u = F.unfold(fr, kernel_size=self.ws, stride=1).view(N, C, self.ws*self.ws, -1)
-            fd_u = F.unfold(fd, kernel_size=self.ws, stride=1).view(N, C, self.ws*self.ws, -1)
+            # Unweighted DISTS (Global Spatial SSIM)
+            mr = torch.mean(fr, dim=(2, 3))
+            md = torch.mean(fd, dim=(2, 3))
+            vr = torch.var(fr, dim=(2, 3), unbiased=False)
+            vd = torch.var(fd, dim=(2, 3), unbiased=False)
+            cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) * (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
             
-            vr = torch.var(fr_u, dim=2, unbiased=False)
-            vd = torch.var(fd_u, dim=2, unbiased=False)
-            mr = torch.mean(fr_u, dim=2)
-            md = torch.mean(fd_u, dim=2)
-            cov = torch.mean((fr_u - mr.unsqueeze(2)) * (fd_u - md.unsqueeze(2)), dim=2)
-            
-            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             
-            local = s_mean * s_var
-            # Average over patches and channels
-            score = local.mean(dim=(1, 2))
+            dists_score = (s_mean * s_var).mean(dim=1)  # average over channels
             
+            # Unweighted LPIPS (Normalized L2 Distance converted to similarity)
+            fr_norm = F.normalize(fr, p=2, dim=1)
+            fd_norm = F.normalize(fd, p=2, dim=1)
+            lpips_dist = ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3))
+            lpips_score = 1.0 - lpips_dist
+            
+            # Combine both concepts
+            score = 0.5 * dists_score + 0.5 * lpips_score
             layer_scores.append(score)
             
         # Average across all selected layers
@@ -96,12 +83,15 @@ class IDFIQA_Enhanced(nn.Module):
 
 
 def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
-    backbone = backbone or CFG.backbone
-    pf = pf if pf is not None else 1.0  # Use all features
-    ws = ws if ws is not None else 7    # Use larger window size for spatial SSIM
+    # We use AlexNet as default for better structural awareness!
+    backbone = backbone or "alexnet"
+    pf = pf if pf is not None else 1.0
     
-    # Use standard 5 evenly spaced layers for VGG
-    feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+    if backbone == "alexnet":
+        feature_layers = ["features.0", "features.3", "features.6", "features.8", "features.10"]
+    else:
+        # Default VGG evenly spaced layers
+        feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
 
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Enhanced(ext, norm,
@@ -111,15 +101,14 @@ def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
 @register_experiment
 class EnhancedSSIMExperiment(DefaultExperiment):
     name = "enhanced"
-    description = "Enhanced Spatial Feature SSIM"
+    description = "Enhanced Unweighted DISTS + LPIPS"
     summary_prefix = "enhanced"
 
     def add_arguments(self, parser):
-        parser.add_argument("--backbone", type=str, default=CFG.backbone)
+        # Change default to alexnet to force usage
+        parser.add_argument("--backbone", type=str, default="alexnet")
         parser.add_argument("--percent-features", type=float, default=1.0)
-        parser.add_argument("--window-size", type=int, default=7)
 
     def build_model(self, device, args):
         return _build_enhanced_model(device, backbone=args.backbone,
-                                     pf=args.percent_features,
-                                     ws=args.window_size)
+                                     pf=args.percent_features)
