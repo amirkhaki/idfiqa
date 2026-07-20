@@ -7,7 +7,7 @@ import random
 import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from .utils import tqdm
 
 from .config import CFG
 from .dataset import get_dataset

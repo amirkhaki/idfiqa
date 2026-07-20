@@ -1,6 +1,12 @@
 """Output helpers and evaluation metrics."""
 import os
+import sys
 import json
+from functools import partial
+from tqdm import tqdm as _tqdm
+
+# Disable tqdm when running non-interactively or in GitHub Actions to avoid log clutter
+tqdm = partial(_tqdm, disable=os.environ.get("GITHUB_ACTIONS") == "true" or not sys.stdout.isatty())
 
 import numpy as np
 from scipy.stats import spearmanr, pearsonr

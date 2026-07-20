@@ -4,7 +4,7 @@ import csv
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
-from tqdm import tqdm
+from ..utils import tqdm
 
 from ..config import CFG
 from ..extractors import make_single_extractor

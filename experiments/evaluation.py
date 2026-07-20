@@ -6,7 +6,7 @@ import random as _random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
-from tqdm import tqdm
+from .utils import tqdm
 
 from .config import CFG
 from .dataset import get_dataset
