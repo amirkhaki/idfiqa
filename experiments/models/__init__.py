@@ -5,6 +5,7 @@ from .patch import WeightedPatchIDFIQA, PatchExperiment
 from .spatial import IDFIQA_SpatialCausal, SpatialExperiment
 from .trainable import IDFIQA_Trainable, TrainableExperiment
 from .hhsim import HHSIMModel, HHSIMExperiment
+from .enhanced import IDFIQA_Enhanced, EnhancedSSIMExperiment
 
 __all__ = [
     "IDFIQA_Baseline", "BaselineExperiment",
@@ -13,4 +14,5 @@ __all__ = [
     "IDFIQA_SpatialCausal", "SpatialExperiment",
     "IDFIQA_Trainable", "TrainableExperiment",
     "HHSIMModel", "HHSIMExperiment",
+    "IDFIQA_Enhanced", "EnhancedSSIMExperiment",
 ]
