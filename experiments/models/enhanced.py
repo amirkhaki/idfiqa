@@ -7,7 +7,6 @@ from ..config import CFG
 from ..extractors import make_multi_extractor
 from ..registry import DefaultExperiment, register_experiment
 
-
 class IDFIQA_Enhanced(nn.Module):
     """
     Enhanced IDFIQA using unweighted DISTS (Global Spatial SSIM) 
@@ -28,22 +27,6 @@ class IDFIQA_Enhanced(nn.Module):
         self.pf = percent_features_to_keep
         self.xi = xi
 
-    def _select_channels(self, feat_ref, feat_dist):
-        if self.pf >= 1.0:
-            return feat_ref, feat_dist
-        n, c, h, w = feat_ref.shape
-        k = max(1, int(c * self.pf))
-        var = torch.var(feat_ref, dim=(2, 3), unbiased=False)
-        _, idx = torch.topk(var, k, dim=1)
-        idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
-        s_ref = torch.gather(feat_ref, 1, idx_r)
-        
-        _, _, hd, wd = feat_dist.shape
-        idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
-        s_dist = torch.gather(feat_dist, 1, idx_d)
-        
-        return s_ref, s_dist
-
     def forward(self, ref, dist):
         out_r = self.feature_extractor(self.normalize(ref.to(self.device)))
         out_d = self.feature_extractor(self.normalize(dist.to(self.device)))
@@ -52,9 +35,6 @@ class IDFIQA_Enhanced(nn.Module):
         for k in out_r.keys():
             fr = out_r[k]
             fd = out_d[k]
-            
-            if self.pf < 1.0:
-                fr, fd = self._select_channels(fr, fd)
             
             # Unweighted DISTS (Global Spatial SSIM)
             mr = torch.mean(fr, dim=(2, 3))
@@ -83,15 +63,16 @@ class IDFIQA_Enhanced(nn.Module):
 
 
 def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
-    # We use AlexNet as default for better structural awareness!
-    backbone = backbone or "alexnet"
+    backbone = backbone or "vgg16"
     pf = pf if pf is not None else 1.0
     
-    if backbone == "alexnet":
-        feature_layers = ["features.0", "features.3", "features.6", "features.8", "features.10"]
+    nodes = list(CFG.candidate_layers(backbone).values())
+    if len(nodes) > 5:
+        # Take 5 evenly spaced layers
+        idx = torch.linspace(0, len(nodes)-1, 5).long()
+        feature_layers = [nodes[i.item()] for i in idx]
     else:
-        # Default VGG evenly spaced layers
-        feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+        feature_layers = nodes
 
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Enhanced(ext, norm,
@@ -105,8 +86,7 @@ class EnhancedSSIMExperiment(DefaultExperiment):
     summary_prefix = "enhanced"
 
     def add_arguments(self, parser):
-        # Change default to alexnet to force usage
-        parser.add_argument("--backbone", type=str, default="alexnet")
+        parser.add_argument("--backbone", type=str, default="vgg16")
         parser.add_argument("--percent-features", type=float, default=1.0)
 
     def build_model(self, device, args):
