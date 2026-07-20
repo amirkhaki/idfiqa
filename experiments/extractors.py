@@ -36,3 +36,11 @@ def make_dual_extractor(backbone: str, feature_layer: str, weight_layer: str):
 
     ext = create_feature_extractor(m, return_nodes)
     return ext, nn.Identity()
+
+def make_multi_extractor(backbone: str, feature_layers: list):
+    info = _registry_info(backbone)
+    m = info["model_fn"]()
+    # w = info["weights"]
+    return_nodes = {layer: layer for layer in feature_layers}
+    ext = create_feature_extractor(m, return_nodes)
+    return ext, nn.Identity()

@@ -3,22 +3,21 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..config import CFG
-from ..extractors import make_single_extractor
+from ..config import CFG, get_all_feature_nodes
+from ..extractors import make_multi_extractor
 from ..registry import DefaultExperiment, register_experiment
 
 
 class IDFIQA_Enhanced(nn.Module):
     """
-    Enhanced IDFIQA.
-    Computes a full SSIM on the spatial feature maps instead of Gram matrices.
+    Enhanced IDFIQA using multi-layer Spatial SSIM.
+    Uses avg_pool2d to avoid memory issues and computes SSIM over multiple layers.
     """
 
     def __init__(self, feature_extractor, normalize,
-                 feature_node_key="features",
                  device=None,
-                 percent_features_to_keep=0.6,
-                 window_size=11,
+                 percent_features_to_keep=1.0,
+                 window_size=7,
                  c1=1e-6,
                  c2=1e-6):
         super().__init__()
@@ -27,19 +26,15 @@ class IDFIQA_Enhanced(nn.Module):
         for p in self.feature_extractor.parameters():
             p.requires_grad = False
         self.normalize = normalize
-        self.feature_node_key = feature_node_key
         self.pf = percent_features_to_keep
         self.ws = window_size
         self.c1 = c1
         self.c2 = c2
 
-    def _features(self, img):
-        out = self.feature_extractor(self.normalize(img.to(self.device)))
-        return out[self.feature_node_key] if isinstance(out, dict) else out
-
     def _select_channels(self, feat_ref, feat_dist):
         n, c, h, w = feat_ref.shape
         k = max(1, int(c * self.pf))
+        # Variance across spatial dims
         var = torch.var(feat_ref, dim=(2, 3), unbiased=False)
         _, idx = torch.topk(var, k, dim=1)
         idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
@@ -52,65 +47,79 @@ class IDFIQA_Enhanced(nn.Module):
         return s_ref, s_dist
 
     def forward(self, ref, dist):
-        fr = self._features(ref)
-        fd = self._features(dist)
+        out_r = self.feature_extractor(self.normalize(ref.to(self.device)))
+        out_d = self.feature_extractor(self.normalize(dist.to(self.device)))
         
-        if self.pf < 1.0:
-            fr, fd = self._select_channels(fr, fd)
+        layer_scores = []
+        for k in out_r.keys():
+            fr = out_r[k]
+            fd = out_d[k]
             
-        B, C, H, W = fr.shape
-        
-        # For very small feature maps, average pooling might be needed or reduce ws
-        ws = min(self.ws, H, W)
-        
-        fr_u = F.unfold(fr, kernel_size=ws, stride=1)  # (B, C * ws^2, L_patches)
-        fd_u = F.unfold(fd, kernel_size=ws, stride=1)
-        
-        L_patches = fr_u.shape[-1]
-        
-        fr_u = fr_u.view(B, C, ws * ws, L_patches)
-        fd_u = fd_u.view(B, C, ws * ws, L_patches)
-        
-        mr = fr_u.mean(dim=2)  # (B, C, L_patches)
-        md = fd_u.mean(dim=2)
-        
-        vr = fr_u.var(dim=2, unbiased=False)
-        vd = fd_u.var(dim=2, unbiased=False)
-        
-        cov = ((fr_u - mr.unsqueeze(2)) * (fd_u - md.unsqueeze(2))).mean(dim=2)
-        
-        L = (2 * mr * md + self.c1) / (mr.pow(2) + md.pow(2) + self.c1)
-        CS = (2 * cov + self.c2) / (vr + vd + self.c2)
-        
-        ssim = L * CS
-        
-        return ssim.mean(dim=(1, 2))
+            if self.pf < 1.0:
+                fr, fd = self._select_channels(fr, fd)
+                
+            B, C, H, W = fr.shape
+            ws = min(self.ws, H, W)
+            if ws % 2 == 0:
+                ws -= 1 # Ensure odd window size if possible, though pool2d supports even
+            ws = max(1, ws)
+            
+            # Using avg_pool2d to compute local mean and variance
+            mr = F.avg_pool2d(fr, kernel_size=ws, stride=1)
+            md = F.avg_pool2d(fd, kernel_size=ws, stride=1)
+            
+            mr_sq = mr.pow(2)
+            md_sq = md.pow(2)
+            mr_md = mr * md
+            
+            vr = F.avg_pool2d(fr.pow(2), kernel_size=ws, stride=1) - mr_sq
+            vd = F.avg_pool2d(fd.pow(2), kernel_size=ws, stride=1) - md_sq
+            cov = F.avg_pool2d(fr * fd, kernel_size=ws, stride=1) - mr_md
+            
+            vr = torch.clamp(vr, min=0.0)
+            vd = torch.clamp(vd, min=0.0)
+            
+            L = (2 * mr_md + self.c1) / (mr_sq + md_sq + self.c1)
+            CS = (2 * cov + self.c2) / (vr + vd + self.c2)
+            
+            ssim = L * CS # (B, C, H', W')
+            layer_scores.append(ssim.mean(dim=(1, 2, 3)))
+            
+        # Average across all selected layers
+        return torch.stack(layer_scores, dim=0).mean(dim=0)
 
 
-def _build_enhanced_model(device, backbone=None, feature_layer=None, pf=None, ws=None):
+def _build_enhanced_model(device, backbone=None, pf=None, ws=None):
     backbone = backbone or CFG.backbone
-    feature_layer = feature_layer or CFG.get_feature_layer(backbone)
     pf = pf if pf is not None else CFG.percent_features
-    ws = ws if ws is not None else 11
-    ext, norm, key = make_single_extractor(backbone, feature_layer)
-    return IDFIQA_Enhanced(ext, norm, feature_node_key=key,
+    ws = ws if ws is not None else 7
+    
+    # Use evenly spaced layers from the backbone
+    all_nodes = list(get_all_feature_nodes(backbone).keys())
+    # Take 5 layers uniformly distributed across depth
+    if len(all_nodes) >= 5:
+        step = len(all_nodes) / 5.0
+        feature_layers = [all_nodes[int(i * step)] for i in range(5)]
+    else:
+        feature_layers = all_nodes
+
+    ext, norm = make_multi_extractor(backbone, feature_layers)
+    return IDFIQA_Enhanced(ext, norm,
                            device=device, percent_features_to_keep=pf, window_size=ws)
 
 
 @register_experiment
 class EnhancedSSIMExperiment(DefaultExperiment):
     name = "enhanced"
-    description = "Enhanced SSIM on spatial feature maps"
+    description = "Enhanced Multi-layer Spatial SSIM"
     summary_prefix = "enhanced"
 
     def add_arguments(self, parser):
         parser.add_argument("--backbone", type=str, default=CFG.backbone)
-        parser.add_argument("--feature-layer", type=str, default=None)
         parser.add_argument("--percent-features", type=float, default=CFG.percent_features)
-        parser.add_argument("--window-size", type=int, default=11)
+        parser.add_argument("--window-size", type=int, default=7)
 
     def build_model(self, device, args):
         return _build_enhanced_model(device, backbone=args.backbone,
-                                     feature_layer=args.feature_layer,
                                      pf=args.percent_features,
                                      ws=args.window_size)
