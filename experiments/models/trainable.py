@@ -18,7 +18,7 @@ class TrainableRegressionHead(nn.Module):
     def __init__(self, in_features, hidden_dim=256):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.BatchNorm1d(in_features),
+            nn.LayerNorm(in_features),
             nn.Linear(in_features, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.5),
