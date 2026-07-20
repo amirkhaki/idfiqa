@@ -55,7 +55,7 @@ class IDFIQA_Trainable(nn.Module):
             
         self.dim_reduce = nn.Identity()
         if self.aggregation in ["gram", "gap_gram"]:
-            reduced_c = 64
+            reduced_c = 16
             self.dim_reduce = nn.Sequential(
                 nn.Conv2d(raw_c, reduced_c, kernel_size=1),
                 nn.ReLU()
