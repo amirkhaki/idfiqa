@@ -380,3 +380,31 @@ class KRSAExperiment(DefaultExperiment):
         model = model.to(device)
         model.eval()
         return model
+
+
+@register_experiment
+class ShallowHybridExperiment(DefaultExperiment):
+    name = "shallow_hybrid"
+    description = "Hybrid model using only shallow layers (features.3, features.8)"
+    summary_prefix = "shallow_hybrid"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--percent-features", type=float, default=0.6)
+        parser.add_argument("--alpha", type=float, default=2.0)
+        parser.add_argument("--spatial-pooling", type=str, default="mean")
+
+    def slug_args(self, args):
+        base = {"backbone": "vgg16", "feature_layer": "shallow"}
+        base["percent_features"] = args.percent_features
+        base["sp"] = args.spatial_pooling
+        return base
+
+    def build_model(self, device, args):
+        feature_layers = ["features.3", "features.8"]
+        ext, norm = make_multi_extractor("vgg16", feature_layers)
+        model = IDFIQA_Hybrid(ext, norm,
+                             device=device, percent_features_to_keep=args.percent_features, window_size=4,
+                             alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
+        model = model.to(device)
+        model.eval()
+        return model
