@@ -362,9 +362,7 @@ class KRSAExperiment(DefaultExperiment):
         parser.add_argument("--beta", type=float, default=1.0)
 
     def slug_args(self, args):
-        base = {"backbone": args.backbone}
-        base["alpha"] = args.alpha
-        base["beta"] = args.beta
+        base = {"backbone": args.backbone, "feature_layer": f"krsa_a{args.alpha}_b{args.beta}"}
         return base
 
     def build_model(self, device, args):
