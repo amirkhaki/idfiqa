@@ -111,49 +111,67 @@ class IDFIQA_Hybrid(nn.Module):
                 s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
                 gram_scores.append(s_mean_g * s_var_g)
             
-            # 2. Local DISTS (Spatial SSIM)
-            # Use a small spatial window (e.g. 3x3) to compute local spatial statistics
-            pad = self.ws // 2
-            pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
-            
-            mr = pool(fr)
-            md = pool(fd)
-            
-            vr = torch.clamp(pool(fr**2) - mr**2, min=0.0)
-            vd = torch.clamp(pool(fd**2) - md**2, min=0.0)
-            cov = pool(fr * fd) - mr * md
-            
-            s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
-            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
-            
-            dists_map = s_mean * s_var
-            n, c = dists_map.shape[:2]
-            
-            # Spatial pooling of the local DISTS map
-            if self.spatial_pooling == "min":
-                dists_scores.append(dists_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
-            elif self.spatial_pooling == "worst10":
-                dists_flat = dists_map.view(n, c, -1)
-                k = max(1, int(dists_flat.shape[2] * 0.1))
-                worst_k = torch.topk(dists_flat, k, dim=2, largest=False)[0]
-                dists_scores.append(worst_k.mean(dim=2).mean(dim=1))
+            # 2. Global DISTS per-channel
+            if self.spatial_pooling == "global":
+                mr = torch.mean(fr, dim=(2, 3), keepdim=True)
+                md = torch.mean(fd, dim=(2, 3), keepdim=True)
+                vr = torch.var(fr, dim=(2, 3), unbiased=False, keepdim=True)
+                vd = torch.var(fd, dim=(2, 3), unbiased=False, keepdim=True)
+                cov = torch.mean((fr - mr) * (fd - md), dim=(2, 3), keepdim=True)
+                
+                s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+                s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+                
+                # Combine structure and texture similarity per channel, then average across channels
+                dists_map = s_mean * s_var
+                dists_scores.append(dists_map.mean(dim=(1, 2, 3)))
             else:
-                dists_scores.append(dists_map.mean(dim=(2, 3)).mean(dim=1))
+                pad = self.ws // 2
+                pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
+                
+                mr = pool(fr)
+                md = pool(fd)
+                vr = torch.clamp(pool(fr**2) - mr**2, min=0.0)
+                vd = torch.clamp(pool(fd**2) - md**2, min=0.0)
+                cov = pool(fr * fd) - mr * md
+                
+                s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+                s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+                dists_map = s_mean * s_var
+                n, c = dists_map.shape[:2]
+                
+                if self.spatial_pooling == "min":
+                    dists_scores.append(dists_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
+                elif self.spatial_pooling == "worst10":
+                    dists_flat = dists_map.view(n, c, -1)
+                    k = max(1, int(dists_flat.shape[2] * 0.1))
+                    worst_k = torch.topk(dists_flat, k, dim=2, largest=False)[0]
+                    dists_scores.append(worst_k.mean(dim=2).mean(dim=1))
+                else:
+                    dists_scores.append(dists_map.mean(dim=(2, 3)).mean(dim=1))
             
-            # 3. Local LPIPS
-            fr_norm = F.normalize(fr, p=2, dim=1)
-            fd_norm = F.normalize(fd, p=2, dim=1)
-            lpips_map = 1.0 - ((fr_norm - fd_norm)**2)
-            
-            if self.spatial_pooling == "min":
-                lpips_scores.append(lpips_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
-            elif self.spatial_pooling == "worst10":
-                lpips_flat = lpips_map.view(n, c, -1)
-                k = max(1, int(lpips_flat.shape[2] * 0.1))
-                worst_k = torch.topk(lpips_flat, k, dim=2, largest=False)[0]
-                lpips_scores.append(worst_k.mean(dim=2).mean(dim=1))
+            # 3. LPIPS
+            if self.spatial_pooling == "global":
+                # Global MSE of channel-normalized features
+                fr_norm = F.normalize(fr, p=2, dim=1)
+                fd_norm = F.normalize(fd, p=2, dim=1)
+                # 1 - Global MSE
+                lpips_map = 1.0 - torch.mean((fr_norm - fd_norm)**2, dim=(2, 3))
+                lpips_scores.append(lpips_map.mean(dim=1))
             else:
-                lpips_scores.append(lpips_map.mean(dim=(1, 2, 3)))
+                fr_norm = F.normalize(fr, p=2, dim=1)
+                fd_norm = F.normalize(fd, p=2, dim=1)
+                lpips_map = 1.0 - ((fr_norm - fd_norm)**2)
+                n, c = lpips_map.shape[:2]
+                if self.spatial_pooling == "min":
+                    lpips_scores.append(lpips_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
+                elif self.spatial_pooling == "worst10":
+                    lpips_flat = lpips_map.view(n, c, -1)
+                    k = max(1, int(lpips_flat.shape[2] * 0.1))
+                    worst_k = torch.topk(lpips_flat, k, dim=2, largest=False)[0]
+                    lpips_scores.append(worst_k.mean(dim=2).mean(dim=1))
+                else:
+                    lpips_scores.append(lpips_map.mean(dim=(1, 2, 3)))
             
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
@@ -198,7 +216,7 @@ class HybridExperiment(DefaultExperiment):
         parser.add_argument("--alpha", type=float, default=1.0, help="Weight for Gram SSIM")
         parser.add_argument("--beta", type=float, default=1.0, help="Weight for Local DISTS")
         parser.add_argument("--gamma", type=float, default=1.0, help="Weight for Local LPIPS")
-        parser.add_argument("--spatial-pooling", type=str, default="mean", choices=["mean", "min", "worst10"], help="Spatial pooling method for DISTS/LPIPS")
+        parser.add_argument("--spatial-pooling", type=str, default="mean", choices=["mean", "min", "worst10", "global"], help="Spatial pooling method for DISTS/LPIPS")
 
     def slug_args(self, args):
         base = super().slug_args(args)
