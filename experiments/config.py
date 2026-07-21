@@ -74,7 +74,7 @@ def _registry_info(backbone: str) -> dict:
 
 
 def _is_feature_node(name: str) -> bool:
-    return name.startswith("features.")
+    return name.startswith("features.") or name.startswith("layer")
 
 
 _NODE_CACHE: Dict[str, Dict[str, str]] = {}
