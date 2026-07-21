@@ -366,7 +366,16 @@ class KRSAExperiment(DefaultExperiment):
         return base
 
     def build_model(self, device, args):
-        extractor, norm, _ = get_feature_extractor(args.backbone, "multi", device)
+        if "vgg" in args.backbone:
+            feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+        elif "convnext" in args.backbone:
+            feature_layers = ["features.1", "features.3", "features.5", "features.7"]
+        elif "resnet" in args.backbone:
+            feature_layers = ["layer1", "layer2", "layer3", "layer4"]
+        else:
+            feature_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
+            
+        extractor, norm = make_multi_extractor(args.backbone, feature_layers)
         model = IDFIQA_KRSA(extractor, norm, device, alpha=args.alpha, beta=args.beta)
         model = model.to(device)
         model.eval()
