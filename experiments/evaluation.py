@@ -37,6 +37,7 @@ def run_evaluation(model, dataset_name: str, csv_filename: str,
         N_RUNS = CFG.large_ds_n_runs
         all_srcc, all_plcc = [], []
         last_preds, last_mos = [], []
+        last_refs, last_dists = [], []
 
         for run in range(N_RUNS):
             indices = _random.sample(range(len(dataset)), N_SAMPLES)
@@ -44,25 +45,33 @@ def run_evaluation(model, dataset_name: str, csv_filename: str,
             loader = DataLoader(subset, batch_size=1, shuffle=False,
                                 num_workers=num_workers)
             run_preds, run_mos = [], []
+            run_refs, run_dists = [], []
             with torch.no_grad():
-                for batch in tqdm(loader,
+                for i, batch in enumerate(tqdm(loader,
                                   desc=f"{desc} run {run+1}/{N_RUNS}",
-                                  leave=False):
+                                  leave=False)):
                     ref = batch["ref_img"].to(device)
                     dis = batch["dis_img"].to(device)
                     mos_val = float(batch["score"][0]) if "score" in batch else float("nan")
                     run_preds.append(model(ref, dis).item())
                     run_mos.append(mos_val)
+                    ref_name = (os.path.basename(batch["ref_img_path"][0])
+                                if "ref_img_path" in batch else f"img{i}")
+                    dis_name = (os.path.basename(batch["dis_img_path"][0])
+                                if "dis_img_path" in batch else "")
+                    run_refs.append(ref_name)
+                    run_dists.append(dis_name)
             rs, rp = compute_metrics(run_preds, run_mos)
             all_srcc.append(rs)
             all_plcc.append(rp)
             last_preds, last_mos = run_preds, run_mos
+            last_refs, last_dists = run_refs, run_dists
 
         with open(csv_file, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["idx", "ref_img_path", "dis_img_path", "score", "mos_label"])
-            for i, (s, mv) in enumerate(zip(last_preds, last_mos)):
-                writer.writerow([i, "", "", s, mv])
+            for i, (s, mv, rn, dn) in enumerate(zip(last_preds, last_mos, last_refs, last_dists)):
+                writer.writerow([i, rn, dn, s, mv])
 
         return float(np.mean(all_srcc)), float(np.mean(all_plcc)), last_preds, last_mos
 
