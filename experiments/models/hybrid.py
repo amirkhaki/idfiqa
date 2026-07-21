@@ -408,3 +408,54 @@ class ShallowHybridExperiment(DefaultExperiment):
         model = model.to(device)
         model.eval()
         return model
+
+class IDFIQA_WSD(nn.Module):
+    def __init__(self, feature_extractor, normalize, device):
+        super().__init__()
+        self.feature_extractor = feature_extractor.to(device).eval()
+        for p in self.feature_extractor.parameters():
+            p.requires_grad = False
+        self.normalize = normalize
+        self.device = device
+        
+    def forward(self, ref, dist):
+        out_r = self.feature_extractor(self.normalize(ref.to(self.device)))
+        out_d = self.feature_extractor(self.normalize(dist.to(self.device)))
+        
+        wsd_scores = []
+        for fr, fd in zip(out_r.values(), out_d.values()):
+            n, c, h, w = fr.shape
+            fr_flat = fr.view(n, c, -1)
+            fd_flat = fd.view(n, c, -1)
+            
+            # 1D Wasserstein distance per channel
+            fr_sorted, _ = torch.sort(fr_flat, dim=2)
+            fd_sorted, _ = torch.sort(fd_flat, dim=2)
+            
+            # Absolute difference of sorted values
+            diff = torch.abs(fr_sorted - fd_sorted)
+            wsd = torch.mean(diff, dim=2) # Shape: (n, c)
+            
+            wsd_scores.append(wsd.mean(dim=1))
+            
+        # Sum over all layers
+        total_wsd = sum(wsd_scores)
+        
+        return total_wsd
+
+@register_experiment
+class WSDExperiment(DefaultExperiment):
+    name = "wsd"
+    description = "Wasserstein Distance on shallow features"
+    summary_prefix = "wsd"
+
+    def slug_args(self, args):
+        return {"backbone": "vgg16", "feature_layer": "shallow_wsd"}
+
+    def build_model(self, device, args):
+        feature_layers = ["features.3", "features.8"]
+        ext, norm = make_multi_extractor("vgg16", feature_layers)
+        model = IDFIQA_WSD(ext, norm, device)
+        model = model.to(device)
+        model.eval()
+        return model
