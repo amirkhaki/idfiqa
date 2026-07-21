@@ -149,7 +149,7 @@ class PatchExperiment(DefaultExperiment):
         base = super().slug_args(args)
         base["wt_layer"] = None
         base["patch_size"] = args.patch_size
-        base["agg"] = args.aggregation
+        base["aggregation"] = args.aggregation
         return base
 
     def build_model(self, device, args):
