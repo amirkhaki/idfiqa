@@ -36,22 +36,33 @@ class IDFIQA_Enhanced(nn.Module):
             fr = out_r[k]
             fd = out_d[k]
             
-            # Unweighted DISTS (Global Spatial SSIM)
-            mr = torch.mean(fr, dim=(2, 3))
-            md = torch.mean(fd, dim=(2, 3))
-            vr = torch.var(fr, dim=(2, 3), unbiased=False)
-            vd = torch.var(fd, dim=(2, 3), unbiased=False)
-            cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) * (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
+            # ConvNeXt can output (N, C) for the classifier layer, we must handle it.
+            if fr.dim() == 2:
+                fr = fr.unsqueeze(-1).unsqueeze(-1)
+                fd = fd.unsqueeze(-1).unsqueeze(-1)
+                
+            n, c = fr.shape[:2]
+            fr_flat = fr.view(n, c, -1)
+            fd_flat = fd.view(n, c, -1)
+            
+            # Unweighted DISTS
+            mr = torch.mean(fr_flat, dim=2, keepdim=True)
+            md = torch.mean(fd_flat, dim=2, keepdim=True)
+            vr = torch.var(fr_flat, dim=2, unbiased=False)
+            vd = torch.var(fd_flat, dim=2, unbiased=False)
+            cov = torch.mean((fr_flat - mr) * (fd_flat - md), dim=2)
+            
+            mr = mr.squeeze(2)
+            md = md.squeeze(2)
             
             s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+            dists_score = (s_mean * s_var).mean(dim=1)
             
-            dists_score = (s_mean * s_var).mean(dim=1)  # average over channels
-            
-            # Unweighted LPIPS (Normalized L2 Distance converted to similarity)
-            fr_norm = F.normalize(fr, p=2, dim=1)
-            fd_norm = F.normalize(fd, p=2, dim=1)
-            lpips_dist = ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3))
+            # Unweighted LPIPS
+            fr_norm = F.normalize(fr_flat, p=2, dim=1)
+            fd_norm = F.normalize(fd_flat, p=2, dim=1)
+            lpips_dist = ((fr_norm - fd_norm)**2).mean(dim=(1, 2))
             lpips_score = 1.0 - lpips_dist
             
             # Combine both concepts

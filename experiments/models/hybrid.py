@@ -69,36 +69,56 @@ class IDFIQA_Hybrid(nn.Module):
                 fr, fd = self._select_channels(fr, fd)
                 
             # 1. Gram score (Baseline)
-            gr = self._gram(fr)
-            gd = self._gram(fd)
+            n, c = fr.shape[:2]
+            fr_flat = fr.view(n, c, -1)
+            fd_flat = fd.view(n, c, -1)
             
-            gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
-            gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
-            
-            vr_g = torch.var(gr_u, dim=2, unbiased=False)
-            vd_g = torch.var(gd_u, dim=2, unbiased=False)
-            mr_g = torch.mean(gr_u, dim=2, keepdim=True)
-            md_g = torch.mean(gd_u, dim=2, keepdim=True)
-            cov_g = torch.mean((gr_u - mr_g) * (gd_u - md_g), dim=2)
-            
-            local_gram = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
-            gram_scores.append(local_gram.mean(dim=1))
+            # Use original 4D shapes for unfold if possible, otherwise skip local unfold
+            if fr.dim() == 4 and fr.shape[2] >= self.ws and fr.shape[3] >= self.ws:
+                gr = self._gram(fr)
+                gd = self._gram(fd)
+                gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
+                gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
+                
+                vr_g = torch.var(gr_u, dim=2, unbiased=False)
+                vd_g = torch.var(gd_u, dim=2, unbiased=False)
+                mr_g = torch.mean(gr_u, dim=2, keepdim=True)
+                md_g = torch.mean(gd_u, dim=2, keepdim=True)
+                cov_g = torch.mean((gr_u - mr_g) * (gd_u - md_g), dim=2)
+                local_gram = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
+                gram_scores.append(local_gram.mean(dim=1))
+            else:
+                # Fallback for 3D/2D: global gram SSIM
+                gr = torch.bmm(fr_flat, fr_flat.transpose(1, 2)) / fr_flat.shape[2]
+                gd = torch.bmm(fd_flat, fd_flat.transpose(1, 2)) / fd_flat.shape[2]
+                vr_g = torch.var(gr, dim=(1, 2), unbiased=False)
+                vd_g = torch.var(gd, dim=(1, 2), unbiased=False)
+                mr_g = torch.mean(gr, dim=(1, 2))
+                md_g = torch.mean(gd, dim=(1, 2))
+                cov_g = torch.mean((gr - mr_g.unsqueeze(-1).unsqueeze(-1)) * (gd - md_g.unsqueeze(-1).unsqueeze(-1)), dim=(1, 2))
+                s_mean_g = (2 * mr_g * md_g + self.xi) / (mr_g ** 2 + md_g ** 2 + self.xi)
+                s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
+                gram_scores.append(s_mean_g * s_var_g)
             
             # 2. DISTS score
-            mr = torch.mean(fr, dim=(2, 3))
-            md = torch.mean(fd, dim=(2, 3))
-            vr = torch.var(fr, dim=(2, 3), unbiased=False)
-            vd = torch.var(fd, dim=(2, 3), unbiased=False)
-            cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) * (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
+            mr = torch.mean(fr_flat, dim=2, keepdim=True)
+            md = torch.mean(fd_flat, dim=2, keepdim=True)
+            vr = torch.var(fr_flat, dim=2, unbiased=False)
+            vd = torch.var(fd_flat, dim=2, unbiased=False)
+            cov = torch.mean((fr_flat - mr) * (fd_flat - md), dim=2)
+            
+            # Squeeze mr and md to match vr, vd, cov shape (N, C)
+            mr = mr.squeeze(2)
+            md = md.squeeze(2)
             
             s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_scores.append((s_mean * s_var).mean(dim=1))
             
             # 3. LPIPS score
-            fr_norm = F.normalize(fr, p=2, dim=1)
-            fd_norm = F.normalize(fd, p=2, dim=1)
-            lpips_scores.append(1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3)))
+            fr_norm = F.normalize(fr_flat, p=2, dim=1)
+            fd_norm = F.normalize(fd_flat, p=2, dim=1)
+            lpips_scores.append(1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2)))
             
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
