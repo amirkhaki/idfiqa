@@ -174,6 +174,8 @@ def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta
         feature_layers = ["features.1", "features.3", "features.5", "features.7"]
     elif "resnet" in backbone:
         feature_layers = ["layer1", "layer2", "layer3", "layer4"]
+    elif "alexnet" in backbone:
+        feature_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
     else:
         feature_layers = [CFG.get_feature_layer(backbone)]
 
