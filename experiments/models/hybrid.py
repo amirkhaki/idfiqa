@@ -254,6 +254,13 @@ class EnsembleExperiment(DefaultExperiment):
         parser.add_argument("--alpha", type=float, default=2.0)
         parser.add_argument("--spatial-pooling", type=str, default="global")
 
+    def slug_args(self, args):
+        base = {"backbone": "vgg16_resnet50"}
+        base["percent_features"] = args.percent_features
+        base["alpha"] = args.alpha
+        base["sp"] = args.spatial_pooling
+        return base
+
     def build_model(self, device, args):
         m1 = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
         m2 = _build_hybrid_model(device, backbone="resnet50", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
