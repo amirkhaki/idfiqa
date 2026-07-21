@@ -173,20 +173,9 @@ class IDFIQA_Hybrid(nn.Module):
                 else:
                     lpips_scores.append(lpips_map.mean(dim=(1, 2, 3)))
             
-        gram_tensor = torch.stack(gram_scores, dim=0)
-        dists_tensor = torch.stack(dists_scores, dim=0)
-        lpips_tensor = torch.stack(lpips_scores, dim=0)
-        
-        # Progressive layer weighting: deep layers matter more for generative hallucinations
-        num_layers = gram_tensor.shape[0]
-        # weights = [1, 2, 4, 8, 16] for 5 layers, normalized
-        weights = torch.tensor([2**i for i in range(num_layers)], device=self.device, dtype=gram_tensor.dtype)
-        weights = weights / weights.sum()
-        weights = weights.unsqueeze(-1) # [L, 1]
-        
-        gram_score = (gram_tensor * weights).sum(dim=0)
-        dists_score = (dists_tensor * weights).sum(dim=0)
-        lpips_score = (lpips_tensor * weights).sum(dim=0)
+        gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
+        dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
+        lpips_score = torch.stack(lpips_scores, dim=0).mean(dim=0)
         
         total_weight = self.alpha + self.beta + self.gamma
         return (self.alpha * gram_score + self.beta * dists_score + self.gamma * lpips_score) / total_weight
