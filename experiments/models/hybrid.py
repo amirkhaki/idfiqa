@@ -449,6 +449,9 @@ class WSDExperiment(DefaultExperiment):
     description = "Wasserstein Distance on shallow features"
     summary_prefix = "wsd"
 
+    def add_arguments(self, parser):
+        pass
+
     def slug_args(self, args):
         return {"backbone": "vgg16", "feature_layer": "shallow_wsd"}
 
