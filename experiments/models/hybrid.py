@@ -233,3 +233,28 @@ class HybridExperiment(DefaultExperiment):
                                    beta=args.beta,
                                    gamma=args.gamma,
                                    spatial_pooling=args.spatial_pooling)
+
+class IDFIQA_Ensemble(nn.Module):
+    def __init__(self, m1, m2):
+        super().__init__()
+        self.m1 = m1
+        self.m2 = m2
+        
+    def forward(self, ref, dist):
+        return (self.m1(ref, dist) + self.m2(ref, dist)) / 2.0
+
+@register_experiment
+class EnsembleExperiment(DefaultExperiment):
+    name = "ensemble"
+    description = "Ensemble of VGG16 and ResNet50 Hybrid models"
+    summary_prefix = "ensemble"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--percent-features", type=float, default=0.6)
+        parser.add_argument("--alpha", type=float, default=2.0)
+        parser.add_argument("--spatial-pooling", type=str, default="global")
+
+    def build_model(self, device, args):
+        m1 = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
+        m2 = _build_hybrid_model(device, backbone="resnet50", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
+        return IDFIQA_Ensemble(m1, m2)
