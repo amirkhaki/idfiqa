@@ -255,9 +255,8 @@ class EnsembleExperiment(DefaultExperiment):
         parser.add_argument("--spatial-pooling", type=str, default="global")
 
     def slug_args(self, args):
-        base = {"backbone": "vgg16_resnet50"}
+        base = {"backbone": "vgg16_resnet50", "feature_layer": "multi"}
         base["percent_features"] = args.percent_features
-        base["alpha"] = args.alpha
         base["sp"] = args.spatial_pooling
         return base
 
