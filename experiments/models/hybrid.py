@@ -264,3 +264,45 @@ class EnsembleExperiment(DefaultExperiment):
         m1 = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
         m2 = _build_hybrid_model(device, backbone="resnet50", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
         return IDFIQA_Ensemble(m1, m2)
+
+class IDFIQA_Multiscale(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base = base_model
+        
+    def forward(self, ref, dist):
+        # Scale 1: Original
+        s1 = self.base(ref, dist)
+        
+        # Scale 2: 1/2
+        ref_2 = F.interpolate(ref, scale_factor=0.5, mode='bilinear', align_corners=False)
+        dist_2 = F.interpolate(dist, scale_factor=0.5, mode='bilinear', align_corners=False)
+        s2 = self.base(ref_2, dist_2)
+        
+        # Scale 3: 1/4
+        ref_4 = F.interpolate(ref, scale_factor=0.25, mode='bilinear', align_corners=False)
+        dist_4 = F.interpolate(dist, scale_factor=0.25, mode='bilinear', align_corners=False)
+        s3 = self.base(ref_4, dist_4)
+        
+        return (s1 + s2 + s3) / 3.0
+
+@register_experiment
+class MultiscaleExperiment(DefaultExperiment):
+    name = "multiscale"
+    description = "Multi-Scale VGG16 Hybrid (1x, 0.5x, 0.25x)"
+    summary_prefix = "multiscale"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--percent-features", type=float, default=0.6)
+        parser.add_argument("--alpha", type=float, default=2.0)
+        parser.add_argument("--spatial-pooling", type=str, default="mean")
+
+    def slug_args(self, args):
+        base = {"backbone": "vgg16", "feature_layer": "multi"}
+        base["percent_features"] = args.percent_features
+        base["sp"] = args.spatial_pooling
+        return base
+
+    def build_model(self, device, args):
+        base_model = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
+        return IDFIQA_Multiscale(base_model)
