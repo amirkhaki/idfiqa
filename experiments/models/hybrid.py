@@ -23,7 +23,8 @@ class IDFIQA_Hybrid(nn.Module):
                  alpha=1.0,
                  beta=1.0,
                  gamma=1.0,
-                 xi=1e-8):
+                 xi=1e-8,
+                 spatial_pooling="mean"):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.feature_extractor = feature_extractor.to(self.device).eval()
@@ -36,6 +37,7 @@ class IDFIQA_Hybrid(nn.Module):
         self.beta = beta
         self.gamma = gamma
         self.xi = xi
+        self.spatial_pooling = spatial_pooling
 
     @staticmethod
     def _gram(feat):
@@ -125,13 +127,33 @@ class IDFIQA_Hybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             
             dists_map = s_mean * s_var
-            # Average spatially, then across channels
-            dists_scores.append(dists_map.mean(dim=(2, 3)).mean(dim=1))
+            n, c = dists_map.shape[:2]
+            
+            # Spatial pooling of the local DISTS map
+            if self.spatial_pooling == "min":
+                dists_scores.append(dists_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
+            elif self.spatial_pooling == "worst10":
+                dists_flat = dists_map.view(n, c, -1)
+                k = max(1, int(dists_flat.shape[2] * 0.1))
+                worst_k = torch.topk(dists_flat, k, dim=2, largest=False)[0]
+                dists_scores.append(worst_k.mean(dim=2).mean(dim=1))
+            else:
+                dists_scores.append(dists_map.mean(dim=(2, 3)).mean(dim=1))
             
             # 3. Local LPIPS
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
-            lpips_scores.append(1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3)))
+            lpips_map = 1.0 - ((fr_norm - fd_norm)**2)
+            
+            if self.spatial_pooling == "min":
+                lpips_scores.append(lpips_map.view(n, c, -1).min(dim=2)[0].mean(dim=1))
+            elif self.spatial_pooling == "worst10":
+                lpips_flat = lpips_map.view(n, c, -1)
+                k = max(1, int(lpips_flat.shape[2] * 0.1))
+                worst_k = torch.topk(lpips_flat, k, dim=2, largest=False)[0]
+                lpips_scores.append(worst_k.mean(dim=2).mean(dim=1))
+            else:
+                lpips_scores.append(lpips_map.mean(dim=(1, 2, 3)))
             
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
@@ -141,7 +163,7 @@ class IDFIQA_Hybrid(nn.Module):
         return (self.alpha * gram_score + self.beta * dists_score + self.gamma * lpips_score) / total_weight
 
 
-def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta=1.0, gamma=1.0):
+def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta=1.0, gamma=1.0, spatial_pooling="mean"):
     backbone = backbone or "vgg16"
     pf = pf if pf is not None else 0.6
     ws = ws if ws is not None else 4
@@ -160,7 +182,7 @@ def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Hybrid(ext, norm,
                          device=device, percent_features_to_keep=pf, window_size=ws,
-                         alpha=alpha, beta=beta, gamma=gamma)
+                         alpha=alpha, beta=beta, gamma=gamma, spatial_pooling=spatial_pooling)
 
 
 @register_experiment
@@ -176,11 +198,13 @@ class HybridExperiment(DefaultExperiment):
         parser.add_argument("--alpha", type=float, default=1.0, help="Weight for Gram SSIM")
         parser.add_argument("--beta", type=float, default=1.0, help="Weight for Local DISTS")
         parser.add_argument("--gamma", type=float, default=1.0, help="Weight for Local LPIPS")
+        parser.add_argument("--spatial-pooling", type=str, default="mean", choices=["mean", "min", "worst10"], help="Spatial pooling method for DISTS/LPIPS")
 
     def slug_args(self, args):
         base = super().slug_args(args)
         base["percent_features"] = args.percent_features
         base["window_size"] = args.window_size
+        base["sp"] = args.spatial_pooling
         return base
 
     def build_model(self, device, args):
@@ -189,4 +213,5 @@ class HybridExperiment(DefaultExperiment):
                                    ws=args.window_size,
                                    alpha=args.alpha,
                                    beta=args.beta,
-                                   gamma=args.gamma)
+                                   gamma=args.gamma,
+                                   spatial_pooling=args.spatial_pooling)
