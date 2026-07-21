@@ -167,15 +167,13 @@ def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta
     backbone = backbone or "vgg16"
     pf = pf if pf is not None else 0.6
     ws = ws if ws is not None else 4
-    
+
     if "vgg" in backbone:
         feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
     elif "convnext" in backbone:
         feature_layers = ["features.1", "features.3", "features.5", "features.7"]
     elif "resnet" in backbone:
         feature_layers = ["layer1", "layer2", "layer3", "layer4"]
-    elif "efficientnet" in backbone:
-        feature_layers = ["features.1", "features.3", "features.5", "features.7"]
     else:
         feature_layers = [CFG.get_feature_layer(backbone)]
 
