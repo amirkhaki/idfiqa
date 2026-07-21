@@ -306,3 +306,70 @@ class MultiscaleExperiment(DefaultExperiment):
     def build_model(self, device, args):
         base_model = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
         return IDFIQA_Multiscale(base_model)
+
+
+class IDFIQA_KRSA(nn.Module):
+    def __init__(self, extractor, norm, device, alpha=1.0, beta=1.0):
+        super().__init__()
+        self.feature_extractor = extractor
+        self.norm = norm
+        self.device = device
+        self.alpha = alpha
+        self.beta = beta
+
+    def forward(self, ref, dist):
+        ref = self.norm(ref)
+        dist = self.norm(dist)
+
+        feats_r = self.feature_extractor(ref)
+        feats_d = self.feature_extractor(dist)
+
+        s1_scores = []
+        s2_scores = []
+
+        for fr, fd in zip(feats_r, feats_d):
+            n, c, h, w = fr.shape
+            fr_flat = fr.view(n, c, -1)
+            fd_flat = fd.view(n, c, -1)
+
+            # Self-Similarity MAE (Gram matrix)
+            gram_r = torch.bmm(fr_flat, fr_flat.transpose(1, 2)) / (h * w)
+            gram_d = torch.bmm(fd_flat, fd_flat.transpose(1, 2)) / (h * w)
+            s1 = torch.mean(torch.abs(gram_r - gram_d), dim=(1, 2))
+
+            # Pairwise MAE
+            s2 = torch.mean(torch.abs(fr - fd), dim=(1, 2, 3))
+            
+            s1_scores.append(s1)
+            s2_scores.append(s2)
+
+        s1_total = torch.stack(s1_scores, dim=0).mean(dim=0)
+        s2_total = torch.stack(s2_scores, dim=0).mean(dim=0)
+
+        # Logarithmic summation
+        score = torch.log(self.alpha * s1_total + self.beta * s2_total + 1.0)
+        return score
+
+@register_experiment
+class KRSAExperiment(DefaultExperiment):
+    name = "krsa"
+    description = "KRSA-style L1 Gram + L1 Feature Metric"
+    summary_prefix = "krsa"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--backbone", type=str, default="vgg16")
+        parser.add_argument("--alpha", type=float, default=1.0)
+        parser.add_argument("--beta", type=float, default=1.0)
+
+    def slug_args(self, args):
+        base = {"backbone": args.backbone}
+        base["alpha"] = args.alpha
+        base["beta"] = args.beta
+        return base
+
+    def build_model(self, device, args):
+        extractor, norm, _ = get_feature_extractor(args.backbone, "multi", device)
+        model = IDFIQA_KRSA(extractor, norm, device, alpha=args.alpha, beta=args.beta)
+        model = model.to(device)
+        model.eval()
+        return model
