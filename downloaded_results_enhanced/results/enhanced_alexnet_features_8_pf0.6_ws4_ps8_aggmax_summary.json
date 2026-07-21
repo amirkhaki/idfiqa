@@ -1,0 +1,13 @@
+{
+  "PIPAL": {
+    "srcc": 0.6642560522488204,
+    "plcc": 0.6805744487963927,
+    "backbone": "alexnet",
+    "feature_layer": "features.8",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  }
+}

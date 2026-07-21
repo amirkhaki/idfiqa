@@ -1,0 +1,68 @@
+{
+  "LIVE": {
+    "srcc": -0.9155653945545685,
+    "plcc": 0.9247385869925515,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  },
+  "CSIQ": {
+    "srcc": -0.8721258205411723,
+    "plcc": 0.9069292441980594,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  },
+  "TID2013": {
+    "srcc": 0.6711767365621001,
+    "plcc": 0.7626459080715984,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  },
+  "KADID": {
+    "srcc": 0.7664320958940996,
+    "plcc": 0.7745764712114064,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  },
+  "PIPAL": {
+    "srcc": 0.5888926568926569,
+    "plcc": 0.6327798425509452,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  },
+  "AIC4": {
+    "srcc": -0.8601197791086567,
+    "plcc": 0.8550628302039072,
+    "backbone": "convnext_base",
+    "feature_layer": "features.5",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  }
+}

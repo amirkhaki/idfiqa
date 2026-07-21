@@ -1,0 +1,13 @@
+{
+  "PIPAL": {
+    "srcc": 0.5856143711280574,
+    "plcc": 0.6260093627514707,
+    "backbone": "efficientnet_b4",
+    "feature_layer": "features.6.5.block.1",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  }
+}

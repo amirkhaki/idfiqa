@@ -17,6 +17,7 @@ def run_slug(
     window_size: Optional[int] = None,
     patch_size: Optional[int] = None,
     aggregation: Optional[str] = None,
+    sp: Optional[str] = None,
 ) -> str:
     """Build a compact, deterministic filename slug."""
     slug = backbone + "_" + layer_slug(feature_layer)
@@ -32,6 +33,8 @@ def run_slug(
     slug += f"_ws{ws}"
     slug += f"_ps{ps}"
     slug += f"_agg{agg.replace('.', '_')}"
+    if sp:
+        slug += f"_sp{sp}"
 
     return slug
 
@@ -44,6 +47,7 @@ def run_config(
     window_size: Optional[int] = None,
     patch_size: Optional[int] = None,
     aggregation: Optional[str] = None,
+    sp: Optional[str] = None,
 ) -> dict:
     """Return the full run configuration as a flat dict."""
     return {
@@ -54,4 +58,5 @@ def run_config(
         "window_size": window_size if window_size is not None else CFG.window_size,
         "patch_size": patch_size if patch_size is not None else CFG.patch_size,
         "aggregation": aggregation if aggregation is not None else CFG.aggregation,
+        "sp": sp,
     }

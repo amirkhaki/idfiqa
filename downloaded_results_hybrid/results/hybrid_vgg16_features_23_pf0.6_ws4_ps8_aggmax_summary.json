@@ -1,0 +1,13 @@
+{
+  "PIPAL": {
+    "srcc": 0.6439721038359365,
+    "plcc": 0.6580841055205569,
+    "backbone": "vgg16",
+    "feature_layer": "features.23",
+    "weight_layer": null,
+    "percent_features": 0.6,
+    "window_size": 4,
+    "patch_size": 8,
+    "aggregation": "max"
+  }
+}
