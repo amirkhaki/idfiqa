@@ -179,12 +179,8 @@ class HybridExperiment(DefaultExperiment):
 
     def slug_args(self, args):
         base = super().slug_args(args)
-        base["wt_layer"] = None
-        base["pf"] = args.percent_features
-        base["ws"] = args.window_size
-        base["alpha"] = args.alpha
-        base["beta"] = args.beta
-        base["gamma"] = args.gamma
+        base["percent_features"] = args.percent_features
+        base["window_size"] = args.window_size
         return base
 
     def build_model(self, device, args):
