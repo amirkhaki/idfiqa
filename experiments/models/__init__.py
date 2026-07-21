@@ -7,6 +7,7 @@ from .trainable import IDFIQA_Trainable, TrainableExperiment
 from .hhsim import HHSIMModel, HHSIMExperiment
 from .enhanced import IDFIQA_Enhanced, EnhancedSSIMExperiment
 from .augmented import ToolAugmentedBaseline, AugmentedExperiment
+from .local_dists import *
 __all__ = [
     "IDFIQA_Baseline", "BaselineExperiment",
     "IDFIQA_Causal", "CausalExperiment",
