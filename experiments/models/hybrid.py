@@ -246,7 +246,7 @@ class IDFIQA_Ensemble(nn.Module):
 @register_experiment
 class EnsembleExperiment(DefaultExperiment):
     name = "ensemble"
-    description = "Ensemble of VGG16 and AlexNet Hybrid models"
+    description = "Ensemble of VGG16 and ConvNeXt-Tiny Hybrid models"
     summary_prefix = "ensemble"
 
     def add_arguments(self, parser):
@@ -255,14 +255,14 @@ class EnsembleExperiment(DefaultExperiment):
         parser.add_argument("--spatial-pooling", type=str, default="mean")
 
     def slug_args(self, args):
-        base = {"backbone": "vgg16_alexnet", "feature_layer": "multi"}
+        base = {"backbone": "vgg16_convnext", "feature_layer": "multi"}
         base["percent_features"] = args.percent_features
         base["sp"] = args.spatial_pooling
         return base
 
     def build_model(self, device, args):
         m1 = _build_hybrid_model(device, backbone="vgg16", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
-        m2 = _build_hybrid_model(device, backbone="alexnet", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
+        m2 = _build_hybrid_model(device, backbone="convnext_tiny", pf=args.percent_features, ws=4, alpha=args.alpha, beta=1.0, gamma=1.0, spatial_pooling=args.spatial_pooling)
         return IDFIQA_Ensemble(m1, m2)
 
 class IDFIQA_Multiscale(nn.Module):
