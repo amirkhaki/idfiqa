@@ -2,6 +2,7 @@
 from .baseline import IDFIQA_Baseline, BaselineExperiment
 from .causal import IDFIQA_Causal, CausalExperiment
 from .patch import IDFIQA_Patch, PatchExperiment
+from .hybrid import IDFIQA_Hybrid, HybridExperiment
 from .spatial import IDFIQA_SpatialCausal, SpatialExperiment
 from .trainable import IDFIQA_Trainable, TrainableExperiment
 from .hhsim import HHSIMModel, HHSIMExperiment
@@ -12,6 +13,7 @@ __all__ = [
     "IDFIQA_Baseline", "BaselineExperiment",
     "IDFIQA_Causal", "CausalExperiment",
     "IDFIQA_Patch", "PatchExperiment",
+    "IDFIQA_Hybrid", "HybridExperiment",
     "IDFIQA_SpatialCausal", "SpatialExperiment",
     "IDFIQA_Trainable", "TrainableExperiment",
     "HHSIMModel", "HHSIMExperiment",
