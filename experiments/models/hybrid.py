@@ -327,7 +327,7 @@ class IDFIQA_KRSA(nn.Module):
         s1_scores = []
         s2_scores = []
 
-        for fr, fd in zip(feats_r, feats_d):
+        for fr, fd in zip(feats_r.values(), feats_d.values()):
             n, c, h, w = fr.shape
             fr_flat = fr.view(n, c, -1)
             fd_flat = fd.view(n, c, -1)
