@@ -116,9 +116,9 @@ class Config:
     n_steps: int = 10
     patch_size_spatial: int = 32
 
-    large_ds_threshold: int = 30000
-    large_ds_n_samples: int = 30000
-    large_ds_n_runs: int = 1
+    large_ds_threshold: int = 1000
+    large_ds_n_samples: int = 1000
+    large_ds_n_runs: int = 5
     ablation_patch_sizes: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
     ablation_window_sizes: List[int] = field(default_factory=lambda: [2, 4, 6, 8])
     ablation_pf_values: List[float] = field(default_factory=lambda: [0.4, 0.5, 0.6, 0.7, 0.8])
