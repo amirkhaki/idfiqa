@@ -1,4 +1,4 @@
-"""Hybrid model combining Gram Matrix SSIM, DISTS, and LPIPS."""
+"""Hybrid model combining Gram Matrix SSIM, Local DISTS, and Local LPIPS."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,15 +11,18 @@ from ..registry import DefaultExperiment, register_experiment
 class IDFIQA_Hybrid(nn.Module):
     """
     Combines:
-    1. Gram-based local SSIM (Texture)
-    2. DISTS spatial SSIM (Structure)
-    3. LPIPS normalized L2 (Pixel/Feature differences)
+    1. Gram-based local SSIM (Texture) - computed on variance-selected channels
+    2. Local DISTS spatial SSIM (Structure) - computed on variance-selected channels
+    3. Local LPIPS normalized L2 (Pixel/Feature differences) - computed on variance-selected channels
     """
 
     def __init__(self, feature_extractor, normalize,
                  device=None,
-                 percent_features_to_keep=1.0,
+                 percent_features_to_keep=0.6,
                  window_size=4,
+                 alpha=1.0,
+                 beta=1.0,
+                 gamma=1.0,
                  xi=1e-8):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,6 +32,9 @@ class IDFIQA_Hybrid(nn.Module):
         self.normalize = normalize
         self.pf = percent_features_to_keep
         self.ws = window_size
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
         self.xi = xi
 
     @staticmethod
@@ -65,16 +71,17 @@ class IDFIQA_Hybrid(nn.Module):
             fr = out_r[k]
             fd = out_d[k]
             
+            # Ensure spatial dimensions exist
+            if fr.dim() == 2:
+                fr = fr.unsqueeze(-1).unsqueeze(-1)
+                fd = fd.unsqueeze(-1).unsqueeze(-1)
+                
+            # Variance-guided channel selection
             if self.pf < 1.0:
                 fr, fd = self._select_channels(fr, fd)
                 
-            # 1. Gram score (Baseline)
-            n, c = fr.shape[:2]
-            fr_flat = fr.view(n, c, -1)
-            fd_flat = fd.view(n, c, -1)
-            
-            # Use original 4D shapes for unfold if possible, otherwise skip local unfold
-            if fr.dim() == 4 and fr.shape[2] >= self.ws and fr.shape[3] >= self.ws:
+            # 1. Local Gram SSIM (Texture)
+            if fr.shape[2] >= self.ws and fr.shape[3] >= self.ws:
                 gr = self._gram(fr)
                 gd = self._gram(fd)
                 gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
@@ -88,7 +95,9 @@ class IDFIQA_Hybrid(nn.Module):
                 local_gram = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
                 gram_scores.append(local_gram.mean(dim=1))
             else:
-                # Fallback for 3D/2D: global gram SSIM
+                n, c = fr.shape[:2]
+                fr_flat = fr.view(n, c, -1)
+                fd_flat = fd.view(n, c, -1)
                 gr = torch.bmm(fr_flat, fr_flat.transpose(1, 2)) / fr_flat.shape[2]
                 gd = torch.bmm(fd_flat, fd_flat.transpose(1, 2)) / fd_flat.shape[2]
                 vr_g = torch.var(gr, dim=(1, 2), unbiased=False)
@@ -100,38 +109,41 @@ class IDFIQA_Hybrid(nn.Module):
                 s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
                 gram_scores.append(s_mean_g * s_var_g)
             
-            # 2. DISTS score
-            mr = torch.mean(fr_flat, dim=2, keepdim=True)
-            md = torch.mean(fd_flat, dim=2, keepdim=True)
-            vr = torch.var(fr_flat, dim=2, unbiased=False)
-            vd = torch.var(fd_flat, dim=2, unbiased=False)
-            cov = torch.mean((fr_flat - mr) * (fd_flat - md), dim=2)
+            # 2. Local DISTS (Spatial SSIM)
+            # Use a small spatial window (e.g. 3x3) to compute local spatial statistics
+            pad = self.ws // 2
+            pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
             
-            # Squeeze mr and md to match vr, vd, cov shape (N, C)
-            mr = mr.squeeze(2)
-            md = md.squeeze(2)
+            mr = pool(fr)
+            md = pool(fd)
+            
+            vr = torch.clamp(pool(fr**2) - mr**2, min=0.0)
+            vd = torch.clamp(pool(fd**2) - md**2, min=0.0)
+            cov = pool(fr * fd) - mr * md
             
             s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
-            dists_scores.append((s_mean * s_var).mean(dim=1))
             
-            # 3. LPIPS score
-            fr_norm = F.normalize(fr_flat, p=2, dim=1)
-            fd_norm = F.normalize(fd_flat, p=2, dim=1)
-            lpips_scores.append(1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2)))
+            dists_map = s_mean * s_var
+            # Average spatially, then across channels
+            dists_scores.append(dists_map.mean(dim=(2, 3)).mean(dim=1))
+            
+            # 3. Local LPIPS
+            fr_norm = F.normalize(fr, p=2, dim=1)
+            fd_norm = F.normalize(fd, p=2, dim=1)
+            lpips_scores.append(1.0 - ((fr_norm - fd_norm)**2).mean(dim=(1, 2, 3)))
             
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
         lpips_score = torch.stack(lpips_scores, dim=0).mean(dim=0)
         
-        # We can weigh them equally for now. Or prioritize spatial vs texture.
-        # Let's do 1/3 each.
-        return (gram_score + dists_score + lpips_score) / 3.0
+        total_weight = self.alpha + self.beta + self.gamma
+        return (self.alpha * gram_score + self.beta * dists_score + self.gamma * lpips_score) / total_weight
 
 
-def _build_hybrid_model(device, backbone=None, pf=None, ws=None):
+def _build_hybrid_model(device, backbone=None, pf=None, ws=None, alpha=1.0, beta=1.0, gamma=1.0):
     backbone = backbone or "vgg16"
-    pf = pf if pf is not None else 1.0
+    pf = pf if pf is not None else 0.6
     ws = ws if ws is not None else 4
     
     if "vgg" in backbone:
@@ -147,21 +159,38 @@ def _build_hybrid_model(device, backbone=None, pf=None, ws=None):
 
     ext, norm = make_multi_extractor(backbone, feature_layers)
     return IDFIQA_Hybrid(ext, norm,
-                         device=device, percent_features_to_keep=pf, window_size=ws)
+                         device=device, percent_features_to_keep=pf, window_size=ws,
+                         alpha=alpha, beta=beta, gamma=gamma)
 
 
 @register_experiment
 class HybridExperiment(DefaultExperiment):
     name = "hybrid"
-    description = "Hybrid Gram + DISTS + LPIPS model"
+    description = "Unified Hybrid Gram + Local DISTS + Local LPIPS model"
     summary_prefix = "hybrid"
 
     def add_arguments(self, parser):
         parser.add_argument("--backbone", type=str, default="vgg16")
-        parser.add_argument("--percent-features", type=float, default=1.0)
+        parser.add_argument("--percent-features", type=float, default=0.6)
         parser.add_argument("--window-size", type=int, default=4)
+        parser.add_argument("--alpha", type=float, default=1.0, help="Weight for Gram SSIM")
+        parser.add_argument("--beta", type=float, default=1.0, help="Weight for Local DISTS")
+        parser.add_argument("--gamma", type=float, default=1.0, help="Weight for Local LPIPS")
+
+    def slug_args(self, args):
+        base = super().slug_args(args)
+        base["wt_layer"] = None
+        base["pf"] = args.percent_features
+        base["ws"] = args.window_size
+        base["alpha"] = args.alpha
+        base["beta"] = args.beta
+        base["gamma"] = args.gamma
+        return base
 
     def build_model(self, device, args):
         return _build_hybrid_model(device, backbone=args.backbone,
                                    pf=args.percent_features,
-                                   ws=args.window_size)
+                                   ws=args.window_size,
+                                   alpha=args.alpha,
+                                   beta=args.beta,
+                                   gamma=args.gamma)
