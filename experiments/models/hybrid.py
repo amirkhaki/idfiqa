@@ -614,3 +614,84 @@ class CausalHybridExperiment(DefaultExperiment):
         model = model.to(device)
         model.eval()
         return model
+
+import torchvision.transforms.functional as TF
+
+class IDFIQA_ShenCausalHybrid(nn.Module):
+    def __init__(self, extractor, norm, device, alpha=1.0, beta=1.0, gamma=1.0, temp=1.0):
+        super().__init__()
+        self.extractor = extractor.to(device)
+        self.norm = norm.to(device)
+        self.device = device
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.temp = temp
+        self.xi = 1e-6
+        self.ws = 4
+
+    def forward(self, img_ref, img_dist):
+        img_ref = self.norm(img_ref.to(self.device))
+        img_dist = self.norm(img_dist.to(self.device))
+        
+        # Abductive counterfactual: Blur the reference image
+        img_ref_unnorm = img_ref # roughly, we just blur the normalized one, it's fine
+        img_blurred = TF.gaussian_blur(img_ref_unnorm, kernel_size=[11, 11], sigma=[5.0, 5.0])
+        
+        feat_ref = self.extractor(img_ref)
+        feat_dist = self.extractor(img_dist)
+        feat_blur = self.extractor(img_blurred)
+
+        scores = []
+        for (fr, fd, fb) in zip(feat_ref.values(), feat_dist.values(), feat_blur.values()):
+            # Compute causal sensitivity (how much channel changes under blur)
+            # High sensitivity = spurious, low sensitivity = causal
+            sensitivity = torch.mean(torch.abs(fr - fb), dim=(2, 3), keepdim=True)
+            # Weight is inverse of sensitivity
+            weights = torch.exp(-self.temp * sensitivity)
+            # Normalize weights across channels
+            weights = weights / (torch.sum(weights, dim=1, keepdim=True) + self.xi)
+            weights = weights * fr.size(1) # scale to average 1.0
+            
+            # Apply causal weights
+            fr = fr * weights
+            fd = fd * weights
+            
+            pad = self.ws // 2
+            pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
+            
+            mr = pool(fr)
+            md = pool(fd)
+            vr = torch.clamp(pool(fr**2) - mr**2, min=0.0)
+            vd = torch.clamp(pool(fd**2) - md**2, min=0.0)
+            cov = pool(fr * fd) - mr * md
+            
+            s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+            dists_map = s_mean * s_var
+            
+            val = dists_map.mean(dim=(1, 2, 3))
+            scores.append(val)
+        
+        return torch.stack(scores, dim=1).mean(dim=1)
+
+@register_experiment
+class ShenCausalExperiment(DefaultExperiment):
+    name = "shen_causal"
+    description = "Hybrid with Abductive Counterfactual (Shen et al 2025) Channel Weighting"
+    summary_prefix = "shen_causal"
+
+    def slug_args(self, args):
+        return {"backbone": "vgg16", "temp": args.temp}
+
+    def add_arguments(self, parser):
+        super().add_arguments(parser)
+        parser.add_argument("--temp", type=float, default=10.0)
+
+    def build_model(self, device, args):
+        feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+        ext, norm = make_multi_extractor("vgg16", feature_layers)
+        model = IDFIQA_ShenCausalHybrid(ext, norm, device, temp=args.temp)
+        model = model.to(device)
+        model.eval()
+        return model
