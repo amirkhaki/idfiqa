@@ -462,3 +462,155 @@ class WSDExperiment(DefaultExperiment):
         model = model.to(device)
         model.eval()
         return model
+
+
+class IDFIQA_CausalHybrid(nn.Module):
+    """
+    Causal Hybrid: channel-importance-weighted feature comparison.
+
+    Key ideas from Shen (CVPR 2025):
+    - Channels that change significantly between ref and dist are
+      'causally relevant' to perceptual quality.
+    - Weight each channel's contribution by its sensitivity to distortion.
+    - Combine Gram SSIM (texture) + DISTS SSIM (structure) + channel-WSD.
+    - Per-layer normalization to prevent deep layers from dominating.
+    """
+
+    def __init__(self, feature_extractor, normalize, device,
+                 alpha=1.0, beta=1.0, gamma=0.5, xi=1e-8,
+                 causal_temp=1.0):
+        super().__init__()
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.feature_extractor = feature_extractor.to(self.device).eval()
+        for p in self.feature_extractor.parameters():
+            p.requires_grad = False
+        self.normalize = normalize
+        self.alpha = alpha  # Gram SSIM weight
+        self.beta = beta    # DISTS SSIM weight
+        self.gamma = gamma  # WSD weight
+        self.xi = xi
+        self.causal_temp = causal_temp
+
+    def _channel_importance(self, fr, fd):
+        """Compute per-channel importance based on feature difference magnitude."""
+        # Mean absolute difference per channel
+        diff = torch.mean(torch.abs(fr - fd), dim=(2, 3))  # (n, c)
+        # Softmax to get normalized weights
+        weights = F.softmax(diff / self.causal_temp, dim=1)  # (n, c)
+        return weights
+
+    def _gram_ssim(self, fr, fd):
+        """Gram-matrix based SSIM."""
+        n, c, h, w = fr.shape
+        fr_flat = fr.view(n, c, h * w)
+        fd_flat = fd.view(n, c, h * w)
+        gr = torch.bmm(fr_flat, fr_flat.transpose(1, 2)) / (h * w)
+        gd = torch.bmm(fd_flat, fd_flat.transpose(1, 2)) / (h * w)
+
+        # Flatten gram matrices for SSIM computation
+        gr_flat = gr.view(n, -1)
+        gd_flat = gd.view(n, -1)
+
+        mr = gr_flat.mean(dim=1)
+        md = gd_flat.mean(dim=1)
+        vr = gr_flat.var(dim=1, unbiased=False)
+        vd = gd_flat.var(dim=1, unbiased=False)
+        cov = ((gr_flat - mr.unsqueeze(1)) * (gd_flat - md.unsqueeze(1))).mean(dim=1)
+
+        s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+        s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+        return s_mean * s_var  # (n,)
+
+    def _dists_ssim(self, fr, fd, weights):
+        """Channel-weighted DISTS SSIM."""
+        # Per-channel mean and variance
+        mr = torch.mean(fr, dim=(2, 3))  # (n, c)
+        md = torch.mean(fd, dim=(2, 3))
+        vr = torch.var(fr, dim=(2, 3), unbiased=False)
+        vd = torch.var(fd, dim=(2, 3), unbiased=False)
+        cov = torch.mean((fr - mr.unsqueeze(-1).unsqueeze(-1)) *
+                         (fd - md.unsqueeze(-1).unsqueeze(-1)), dim=(2, 3))
+
+        s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+        s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+        per_channel = s_mean * s_var  # (n, c)
+
+        # Weighted average across channels
+        return (per_channel * weights).sum(dim=1)  # (n,)
+
+    def _channel_wsd(self, fr, fd, weights):
+        """Channel-weighted 1D Wasserstein distance."""
+        n, c, h, w = fr.shape
+        fr_flat = fr.view(n, c, -1)
+        fd_flat = fd.view(n, c, -1)
+
+        fr_sorted, _ = torch.sort(fr_flat, dim=2)
+        fd_sorted, _ = torch.sort(fd_flat, dim=2)
+
+        wsd_per_ch = torch.mean(torch.abs(fr_sorted - fd_sorted), dim=2)  # (n, c)
+        # Weighted sum, then negate (higher distance = lower quality)
+        return -(wsd_per_ch * weights).sum(dim=1)  # (n,)
+
+    def forward(self, ref, dist):
+        out_r = self.feature_extractor(self.normalize(ref.to(self.device)))
+        out_d = self.feature_extractor(self.normalize(dist.to(self.device)))
+
+        gram_scores = []
+        dists_scores = []
+        wsd_scores = []
+
+        for fr, fd in zip(out_r.values(), out_d.values()):
+            if fr.dim() == 2:
+                fr = fr.unsqueeze(-1).unsqueeze(-1)
+                fd = fd.unsqueeze(-1).unsqueeze(-1)
+
+            # Causal channel importance
+            weights = self._channel_importance(fr, fd)
+
+            gram_scores.append(self._gram_ssim(fr, fd))
+            dists_scores.append(self._dists_ssim(fr, fd, weights))
+            wsd_scores.append(self._channel_wsd(fr, fd, weights))
+
+        # Per-layer normalize then average
+        n_layers = len(gram_scores)
+        gram_score = sum(gram_scores) / n_layers
+        dists_score = sum(dists_scores) / n_layers
+        wsd_score = sum(wsd_scores) / n_layers
+
+        total = self.alpha + self.beta + self.gamma
+        return (self.alpha * gram_score + self.beta * dists_score + self.gamma * wsd_score) / total
+
+
+@register_experiment
+class CausalHybridExperiment(DefaultExperiment):
+    name = "causal_hybrid"
+    description = "Causal channel-importance weighted Gram SSIM + DISTS + WSD"
+    summary_prefix = "causal_hybrid"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--alpha", type=float, default=1.0)
+        parser.add_argument("--beta", type=float, default=1.0)
+        parser.add_argument("--gamma", type=float, default=0.5)
+        parser.add_argument("--causal-temp", type=float, default=1.0)
+        parser.add_argument("--layers", type=str, default="all",
+                            choices=["all", "shallow", "mid"])
+
+    def slug_args(self, args):
+        return {"backbone": "vgg16",
+                "feature_layer": f"causal_{args.layers}_a{args.alpha}_b{args.beta}_g{args.gamma}_t{args.causal_temp}"}
+
+    def build_model(self, device, args):
+        if args.layers == "shallow":
+            feature_layers = ["features.3", "features.8"]
+        elif args.layers == "mid":
+            feature_layers = ["features.3", "features.8", "features.15"]
+        else:
+            feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+
+        ext, norm = make_multi_extractor("vgg16", feature_layers)
+        model = IDFIQA_CausalHybrid(ext, norm, device,
+                                     alpha=args.alpha, beta=args.beta,
+                                     gamma=args.gamma, causal_temp=args.causal_temp)
+        model = model.to(device)
+        model.eval()
+        return model
