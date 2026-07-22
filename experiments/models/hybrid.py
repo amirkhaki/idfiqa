@@ -618,25 +618,21 @@ class CausalHybridExperiment(DefaultExperiment):
 import torchvision.transforms.functional as TF
 
 class IDFIQA_ShenCausalHybrid(nn.Module):
-    def __init__(self, extractor, norm, device, alpha=1.0, beta=1.0, gamma=1.0, temp=1.0):
+    def __init__(self, extractor, norm, device, pf=0.6, ws=4, temp=1.0):
         super().__init__()
         self.extractor = extractor.to(device)
         self.norm = norm.to(device)
         self.device = device
-        self.alpha = alpha
-        self.beta = beta
-        self.gamma = gamma
-        self.temp = temp
+        self.pf = pf
+        self.ws = ws
         self.xi = 1e-6
-        self.ws = 4
 
     def forward(self, img_ref, img_dist):
         img_ref = self.norm(img_ref.to(self.device))
         img_dist = self.norm(img_dist.to(self.device))
         
         # Abductive counterfactual: Blur the reference image
-        img_ref_unnorm = img_ref # roughly, we just blur the normalized one, it's fine
-        img_blurred = TF.gaussian_blur(img_ref_unnorm, kernel_size=[11, 11], sigma=[5.0, 5.0])
+        img_blurred = TF.gaussian_blur(img_ref, kernel_size=[11, 11], sigma=[5.0, 5.0])
         
         feat_ref = self.extractor(img_ref)
         feat_dist = self.extractor(img_dist)
@@ -644,27 +640,29 @@ class IDFIQA_ShenCausalHybrid(nn.Module):
 
         scores = []
         for (fr, fd, fb) in zip(feat_ref.values(), feat_dist.values(), feat_blur.values()):
-            # Compute causal sensitivity (how much channel changes under blur)
-            # High sensitivity = spurious, low sensitivity = causal
-            sensitivity = torch.mean(torch.abs(fr - fb), dim=(2, 3), keepdim=True)
-            # Weight is inverse of sensitivity
-            weights = torch.exp(-self.temp * sensitivity)
-            # Normalize weights across channels
-            weights = weights / (torch.sum(weights, dim=1, keepdim=True) + self.xi)
-            weights = weights * fr.size(1) # scale to average 1.0
+            n, c, h, w = fr.size()
             
-            # Apply causal weights
-            fr = fr * weights
-            fd = fd * weights
+            # Compute causal sensitivity: difference between original and blurred
+            # High difference = highly sensitive (causal shallow features like edges)
+            # Low difference = invariant (spurious deep semantics)
+            sensitivity = torch.mean(torch.abs(fr - fb), dim=(2, 3)) # shape: [n, c]
+            
+            k = max(1, int(c * self.pf))
+            # We want the most sensitive channels (highest difference)
+            _, idx = torch.topk(sensitivity, k, dim=1) # shape: [n, k]
+            
+            # Gather top-k channels
+            fr_top = torch.gather(fr, 1, idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w))
+            fd_top = torch.gather(fd, 1, idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w))
             
             pad = self.ws // 2
             pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
             
-            mr = pool(fr)
-            md = pool(fd)
-            vr = torch.clamp(pool(fr**2) - mr**2, min=0.0)
-            vd = torch.clamp(pool(fd**2) - md**2, min=0.0)
-            cov = pool(fr * fd) - mr * md
+            mr = pool(fr_top)
+            md = pool(fd_top)
+            vr = torch.clamp(pool(fr_top**2) - mr**2, min=0.0)
+            vd = torch.clamp(pool(fd_top**2) - md**2, min=0.0)
+            cov = pool(fr_top * fd_top) - mr * md
             
             s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
@@ -682,16 +680,17 @@ class ShenCausalExperiment(DefaultExperiment):
     summary_prefix = "shen_causal"
 
     def slug_args(self, args):
-        return {"backbone": "vgg16", "feature_layer": f"causal_t{args.temp}"}
+        return {"backbone": args.backbone, "feature_layer": f"causal_topk"}
 
     def add_arguments(self, parser):
         super().add_arguments(parser)
-        parser.add_argument("--temp", type=float, default=10.0)
+        parser.add_argument("--backbone", type=str, default="vgg16")
+        parser.add_argument("--pf", type=float, default=0.2)
 
     def build_model(self, device, args):
         feature_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
-        ext, norm = make_multi_extractor("vgg16", feature_layers)
-        model = IDFIQA_ShenCausalHybrid(ext, norm, device, temp=args.temp)
+        ext, norm = make_multi_extractor(args.backbone, feature_layers)
+        model = IDFIQA_ShenCausalHybrid(ext, norm, device, pf=args.pf)
         model = model.to(device)
         model.eval()
         return model
