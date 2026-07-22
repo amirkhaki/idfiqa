@@ -682,7 +682,7 @@ class ShenCausalExperiment(DefaultExperiment):
     summary_prefix = "shen_causal"
 
     def slug_args(self, args):
-        return {"backbone": "vgg16", "temp": args.temp}
+        return {"backbone": "vgg16", "feature_layer": f"causal_t{args.temp}"}
 
     def add_arguments(self, parser):
         super().add_arguments(parser)
