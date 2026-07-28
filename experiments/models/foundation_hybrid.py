@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base Multi-Layer Spatial DISTS + Spatial Gram SSIM
-+ AlexNet Multi-Layer DISTS & Gram SSIM across a 3-scale spatial pyramid.
+Combines DINOv2-Base Multi-Layer Spatial DISTS + Self-Similarity Matrix (SSM)
++ AlexNet Multi-Layer Local DISTS & Gram SSIM across a 3-scale spatial pyramid.
 """
 import torch
 import torch.nn as nn
@@ -25,8 +25,7 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        # Extract blocks 3, 6, 9, 11 for broad semantic & structural coverage
-        self.layer_indices = [3, 6, 9, 11]
+        self.layer_indices = [2, 5, 8, 11]
         self.layer_weights = [0.35, 0.30, 0.20, 0.15]
 
     @torch.no_grad()
@@ -59,7 +58,7 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 Spatial DISTS + Spatial Gram SSIM + Patch Cosine Worst-K + CLS Similarity.
+    1. DINOv2 Spatial DISTS + Self-Similarity Matrix (SSM) + Patch Cosine Worst-K + CLS Similarity.
     2. AlexNet Multi-Layer Local DISTS + Gram SSIM.
     3. Multi-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
     """
@@ -67,8 +66,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.60,
-                 w_cnn_dists=0.25,
+                 w_dino=0.55,
+                 w_cnn_dists=0.30,
                  w_cnn_gram=0.15,
                  worst_k_ratio=0.20,
                  ws=4,
@@ -108,6 +107,14 @@ class IDFIQA_FoundationHybrid(nn.Module):
         f = feat.view(n, c, h * w)
         return torch.bmm(f, f.transpose(1, 2)) / (h * w)
 
+    @staticmethod
+    def _compute_ssm(feat):
+        """Computes internal Self-Similarity Matrix (SSM) between spatial locations."""
+        B, C, H, W = feat.shape
+        f_norm = F.normalize(feat.view(B, C, H * W), p=2, dim=1)  # (B, C, N)
+        ssm = torch.bmm(f_norm.transpose(1, 2), f_norm)  # (B, N, N)
+        return ssm
+
     def _select_channels(self, feat_ref, feat_dist):
         if self.pf >= 1.0:
             return feat_ref, feat_dist
@@ -140,17 +147,10 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
-            # 2. DINO Spatial Gram SSIM
-            gr = self._gram(fr)
-            gd = self._gram(fd)
-            vr_g = torch.var(gr, dim=(1, 2), unbiased=False)
-            vd_g = torch.var(gd, dim=(1, 2), unbiased=False)
-            mr_g = torch.mean(gr, dim=(1, 2))
-            md_g = torch.mean(gd, dim=(1, 2))
-            cov_g = torch.mean((gr - mr_g.unsqueeze(-1).unsqueeze(-1)) * (gd - md_g.unsqueeze(-1).unsqueeze(-1)), dim=(1, 2))
-            s_mean_g = (2 * mr_g * md_g + self.xi) / (mr_g ** 2 + md_g ** 2 + self.xi)
-            s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
-            gram_dino_score = s_mean_g * s_var_g
+            # 2. DINO Internal Self-Similarity Matrix (SSM) Comparison
+            ssm_r = self._compute_ssm(fr)
+            ssm_d = self._compute_ssm(fd)
+            ssm_score = 1.0 - torch.abs(ssm_r - ssm_d).mean(dim=(1, 2))
 
             # 3. Patch Cosine Similarity + Quantile Worst-K
             fr_norm = F.normalize(fr, p=2, dim=1)
@@ -168,7 +168,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             cd_norm = F.normalize(cd, p=2, dim=1)
             cls_score = (cr_norm * cd_norm).sum(dim=1)
 
-            layer_score = 0.35 * dists_score + 0.20 * gram_dino_score + 0.35 * patch_cos_score + 0.10 * cls_score
+            layer_score = 0.35 * dists_score + 0.25 * ssm_score + 0.30 * patch_cos_score + 0.10 * cls_score
             weighted_layer_scores.append(lw * layer_score)
 
         total_weight = sum(self.dino.layer_weights)
@@ -262,7 +262,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.60, w_cnn_dists=0.25, w_cnn_gram=0.15, multiscale=True):
+                             w_dino=0.55, w_cnn_dists=0.30, w_cnn_gram=0.15, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -277,7 +277,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Spatial Gram & DISTS + AlexNet)"
+    description = "Training-Free Foundation Hybrid (DINOv2 SSM & DISTS + AlexNet)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -285,8 +285,8 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.60, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.25, help="Weight for CNN DISTS")
+        parser.add_argument("--w-dino", type=float, default=0.55, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.30, help="Weight for CNN DISTS")
         parser.add_argument("--w-secondary-cnn", type=float, default=0.15, help="Weight for CNN Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
@@ -295,7 +295,7 @@ class FoundationHybridExperiment(DefaultExperiment):
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
-            "backbone": f"{dino_name}_{cnn_name}",
+            "backbone": f"{dino_name}_{cnn_name}_ssm",
             "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
