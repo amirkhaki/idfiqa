@@ -1,6 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Supports DINOv2-Base and DINOv2-Large with AMP fp16 for optimal memory efficiency.
+Combines DINOv2-Base Multi-Layer Spatial DISTS + Patch Cosine Worst-K (60% quantile penalty)
++ AlexNet Multi-Layer DISTS & Gram SSIM across a 4-scale spatial pyramid (1.0x, 0.85x, 0.70x, 0.55x).
 """
 import torch
 import torch.nn as nn
@@ -15,7 +16,7 @@ from ..helpers import run_slug, run_config
 class DINOv2SpatialExtractor(nn.Module):
     """Extracts 2D spatial feature maps and CLS tokens from DINOv2."""
 
-    def __init__(self, model_name="dinov2_vitl14", device=None):
+    def __init__(self, model_name="dinov2_vitb14", device=None):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
@@ -24,10 +25,7 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        if "vitl14" in model_name:
-            self.layer_indices = [5, 11, 17, 23]
-        else:
-            self.layer_indices = [2, 5, 8, 11]
+        self.layer_indices = [2, 5, 8, 11]
         self.layer_weights = [0.35, 0.30, 0.20, 0.15]
 
     @torch.no_grad()
@@ -41,17 +39,14 @@ class DINOv2SpatialExtractor(nn.Module):
         H_pad, W_pad = x.shape[2], x.shape[3]
         h_patches, w_patches = H_pad // 14, W_pad // 14
 
-        with torch.cuda.amp.autocast(dtype=torch.float16):
-            out_raw = self.model.get_intermediate_layers(
-                x.to(self.device), n=self.layer_indices, return_class_token=True
-            )
+        out_raw = self.model.get_intermediate_layers(
+            x.to(self.device), n=self.layer_indices, return_class_token=True
+        )
 
         spatial_maps = []
         cls_tokens = []
 
         for patch_tokens, cls_tok in out_raw:
-            patch_tokens = patch_tokens.float()
-            cls_tok = cls_tok.float()
             C_feat = patch_tokens.shape[-1]
             feat_2d = patch_tokens.permute(0, 2, 1).view(B, C_feat, h_patches, w_patches)
             spatial_maps.append(feat_2d)
@@ -63,16 +58,16 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 (Base or Large) 2D spatial DISTS + Patch Cosine + CLS Similarity.
-    2. AlexNet Multi-Layer Local DISTS + Gram SSIM.
-    3. Multi-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
+    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-K + CLS Similarity.
+    2. AlexNet multi-layer DISTS + Gram SSIM.
+    3. 4-Scale Spatial Pyramid (1.0x, 0.85x, 0.70x, 0.55x).
     """
 
-    def __init__(self, dino_model_name="dinov2_vitl14",
+    def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.55,
-                 w_cnn_dists=0.30,
+                 w_dino=0.50,
+                 w_cnn_dists=0.35,
                  w_cnn_gram=0.15,
                  worst_k_ratio=0.15,
                  ws=4,
@@ -144,7 +139,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
-            # 2. Patch Cosine Similarity + Quantile Worst-K
+            # 2. Patch Cosine Similarity + Quantile Worst-K (60% worst-k penalty)
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
             cos_sim_map = (fr_norm * fd_norm).sum(dim=1)
@@ -153,7 +148,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             mean_cos = cos_flat.mean(dim=1)
             k_val = max(1, int(cos_flat.shape[1] * self.worst_k_ratio))
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
-            patch_cos_score = 0.60 * mean_cos + 0.40 * worst_cos
+            patch_cos_score = 0.40 * mean_cos + 0.60 * worst_cos
 
             # 3. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
@@ -240,21 +235,25 @@ class IDFIQA_FoundationHybrid(nn.Module):
         if not self.multiscale:
             return s1
 
-        # 3-Scale Pyramid: 1.0x, 0.75x, 0.50x
-        ref_75 = F.interpolate(ref, scale_factor=0.75, mode="bilinear", align_corners=False)
-        dist_75 = F.interpolate(dist, scale_factor=0.75, mode="bilinear", align_corners=False)
-        s75 = self._single_scale_forward(ref_75, dist_75)
+        # 4-Scale Pyramid: 1.0x, 0.85x, 0.70x, 0.55x
+        ref_85 = F.interpolate(ref, scale_factor=0.85, mode="bilinear", align_corners=False)
+        dist_85 = F.interpolate(dist, scale_factor=0.85, mode="bilinear", align_corners=False)
+        s85 = self._single_scale_forward(ref_85, dist_85)
 
-        ref_50 = F.interpolate(ref, scale_factor=0.50, mode="bilinear", align_corners=False)
-        dist_50 = F.interpolate(dist, scale_factor=0.50, mode="bilinear", align_corners=False)
-        s50 = self._single_scale_forward(ref_50, dist_50)
+        ref_70 = F.interpolate(ref, scale_factor=0.70, mode="bilinear", align_corners=False)
+        dist_70 = F.interpolate(dist, scale_factor=0.70, mode="bilinear", align_corners=False)
+        s70 = self._single_scale_forward(ref_70, dist_70)
+
+        ref_55 = F.interpolate(ref, scale_factor=0.55, mode="bilinear", align_corners=False)
+        dist_55 = F.interpolate(dist, scale_factor=0.55, mode="bilinear", align_corners=False)
+        s55 = self._single_scale_forward(ref_55, dist_55)
 
         torch.cuda.empty_cache()
-        return 0.45 * s1 + 0.35 * s75 + 0.20 * s50
+        return 0.35 * s1 + 0.30 * s85 + 0.20 * s70 + 0.15 * s55
 
 
-def _build_foundation_hybrid(device, dino_model="dinov2_vitl14", cnn_backbone="alexnet",
-                             w_dino=0.55, w_cnn_dists=0.30, w_cnn_gram=0.15, multiscale=True):
+def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
+                             w_dino=0.50, w_cnn_dists=0.35, w_cnn_gram=0.15, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -269,22 +268,22 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitl14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Large + AlexNet)"
+    description = "Training-Free Foundation Hybrid (DINOv2 Base + AlexNet 4-Scale Pyramid)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
-        parser.add_argument("--dino-model", type=str, default="dinov2_vitl14",
+        parser.add_argument("--dino-model", type=str, default="dinov2_vitb14",
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.55, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.30, help="Weight for CNN DISTS")
+        parser.add_argument("--w-dino", type=float, default=0.50, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.35, help="Weight for CNN DISTS")
         parser.add_argument("--w-secondary-cnn", type=float, default=0.15, help="Weight for CNN Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
         ms_str = "single" if getattr(args, "no_multiscale", False) else "ms"
-        dino_name = getattr(args, "dino_model", "dinov2_vitl14")
+        dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
             "backbone": f"{dino_name}_{cnn_name}",
