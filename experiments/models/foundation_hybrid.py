@@ -1,7 +1,6 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base + ConvNeXt-Tiny + AlexNet multi-layer representations
-across a 3-scale spatial pyramid for state-of-the-art non-training PIPAL performance.
+DINOv2-Base + AlexNet Multi-Layer Fusion with 70% DINOv2 weighting for PIPAL benchmark.
 """
 import torch
 import torch.nn as nn
@@ -57,20 +56,16 @@ class DINOv2SpatialExtractor(nn.Module):
 
 class IDFIQA_FoundationHybrid(nn.Module):
     """
-    State-of-the-Art Training-Free Triple Foundation Hybrid Model:
-    1. DINOv2-Base (Spatial DISTS + Patch Cosine + Worst-K Quantile + CLS).
-    2. ConvNeXt-Tiny (Modern multi-depth ConvNet features).
-    3. AlexNet (Low-level edge & Gram matrix SSIM features).
-    4. 3-Scale Pyramid (1.0x, 0.75x, 0.50x).
+    Training-Free Foundation Hybrid Model:
+    DINOv2-Base (70% weight) + AlexNet DISTS (20% weight) + AlexNet Gram SSIM (10% weight).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
-                 secondary_cnn="convnext_tiny",
                  device=None,
-                 w_dino=0.45,
-                 w_primary_cnn=0.30,
-                 w_secondary_cnn=0.25,
+                 w_dino=0.70,
+                 w_primary_cnn=0.20,
+                 w_secondary_cnn=0.10,
                  worst_k_ratio=0.15,
                  ws=4,
                  pf=0.6,
@@ -90,18 +85,17 @@ class IDFIQA_FoundationHybrid(nn.Module):
         # 1. DINOv2 Extractor
         self.dino = DINOv2SpatialExtractor(dino_model_name, device=self.device)
 
-        # 2. Primary CNN (AlexNet)
-        alex_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
-        self.alex_ext, self.alex_norm = make_multi_extractor("alexnet", alex_layers)
-        self.alex_ext = self.alex_ext.to(self.device).eval()
-        for p in self.alex_ext.parameters():
-            p.requires_grad = False
+        # 2. Primary CNN Extractor (AlexNet)
+        if "alexnet" in cnn_backbone:
+            cnn_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
+        elif "vgg" in cnn_backbone:
+            cnn_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+        else:
+            cnn_layers = ["layer1", "layer2", "layer3", "layer4"]
 
-        # 3. Secondary CNN (ConvNeXt-Tiny)
-        convnext_layers = ["features.1", "features.3", "features.5", "features.7"]
-        self.convnext_ext, self.convnext_norm = make_multi_extractor("convnext_tiny", convnext_layers)
-        self.convnext_ext = self.convnext_ext.to(self.device).eval()
-        for p in self.convnext_ext.parameters():
+        self.cnn_ext, self.cnn_norm = make_multi_extractor(cnn_backbone, cnn_layers)
+        self.cnn_ext = self.cnn_ext.to(self.device).eval()
+        for p in self.cnn_ext.parameters():
             p.requires_grad = False
 
     @staticmethod
@@ -131,6 +125,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         weighted_layer_scores = []
         for (fr, fd, cr, cd), lw in zip(zip(maps_r, maps_d, cls_r, cls_d), self.dino.layer_weights):
+            # 1. DISTS SSIM on 2D spatial feature map
             mr = torch.mean(fr, dim=(2, 3), keepdim=True)
             md = torch.mean(fd, dim=(2, 3), keepdim=True)
             vr = torch.var(fr, dim=(2, 3), unbiased=False, keepdim=True)
@@ -141,6 +136,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
+            # 2. Patch Cosine Similarity + Quantile Worst-K
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
             cos_sim_map = (fr_norm * fd_norm).sum(dim=1)
@@ -151,6 +147,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
             patch_cos_score = 0.60 * mean_cos + 0.40 * worst_cos
 
+            # 3. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
             cd_norm = F.normalize(cd, p=2, dim=1)
             cls_score = (cr_norm * cd_norm).sum(dim=1)
@@ -162,9 +159,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
         return torch.stack(weighted_layer_scores, dim=0).sum(dim=0) / total_weight
 
     @torch.no_grad()
-    def _compute_extractor_score(self, extractor, norm, ref, dist):
-        out_r = extractor(norm(ref.to(self.device)))
-        out_d = extractor(norm(dist.to(self.device)))
+    def _compute_cnn_score(self, ref, dist):
+        out_r = self.cnn_ext(self.cnn_norm(ref.to(self.device)))
+        out_d = self.cnn_ext(self.cnn_norm(dist.to(self.device)))
 
         dists_scores = []
         gram_scores = []
@@ -218,16 +215,15 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
-        return 0.65 * dists_score + 0.35 * gram_score
+        return dists_score, gram_score
 
     @torch.no_grad()
     def _single_scale_forward(self, ref, dist):
         s_dino = self._compute_dino_score(ref, dist)
-        s_alex = self._compute_extractor_score(self.alex_ext, self.alex_norm, ref, dist)
-        s_convnext = self._compute_extractor_score(self.convnext_ext, self.convnext_norm, ref, dist)
+        s_dists, s_gram = self._compute_cnn_score(ref, dist)
 
         total_w = self.w_dino + self.w_primary_cnn + self.w_secondary_cnn
-        return (self.w_dino * s_dino + self.w_primary_cnn * s_alex + self.w_secondary_cnn * s_convnext) / total_w
+        return (self.w_dino * s_dino + self.w_primary_cnn * s_dists + self.w_secondary_cnn * s_gram) / total_w
 
     @torch.no_grad()
     def forward(self, ref, dist):
@@ -250,12 +246,10 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             secondary_cnn="convnext_tiny",
-                             w_dino=0.45, w_primary_cnn=0.30, w_secondary_cnn=0.25, multiscale=True):
+                             w_dino=0.70, w_primary_cnn=0.20, w_secondary_cnn=0.10, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
-        secondary_cnn=secondary_cnn,
         device=device,
         w_dino=w_dino,
         w_primary_cnn=w_primary_cnn,
@@ -267,7 +261,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Base + AlexNet + ConvNeXt-Tiny)"
+    description = "Training-Free Foundation Hybrid (DINOv2 Base 70% + AlexNet)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -275,31 +269,26 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--secondary-cnn", type=str, default="convnext_tiny",
-                            choices=["vgg16", "convnext_tiny", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.45, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.30, help="Weight for AlexNet")
-        parser.add_argument("--w-secondary-cnn", type=float, default=0.25, help="Weight for ConvNeXt-Tiny")
+        parser.add_argument("--w-dino", type=float, default=0.70, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.20, help="Weight for AlexNet DISTS")
+        parser.add_argument("--w-secondary-cnn", type=float, default=0.10, help="Weight for AlexNet Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
         ms_str = "single" if getattr(args, "no_multiscale", False) else "ms"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
-        sec_name = getattr(args, "secondary_cnn", "convnext_tiny")
         return {
-            "backbone": f"{dino_name}_{cnn_name}_{sec_name}",
-            "feature_layer": f"fh_wd{args.w_dino}_wpc{args.w_primary_cnn}_wsc{args.w_secondary_cnn}_{ms_str}"
+            "backbone": f"{dino_name}_{cnn_name}",
+            "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
     def build_model(self, device, args):
         ms = not getattr(args, "no_multiscale", False)
-        sec = getattr(args, "secondary_cnn", "convnext_tiny")
         return _build_foundation_hybrid(
             device=device,
             dino_model=args.dino_model,
             cnn_backbone=args.cnn_backbone,
-            secondary_cnn=sec,
             w_dino=args.w_dino,
             w_primary_cnn=args.w_primary_cnn,
             w_secondary_cnn=args.w_secondary_cnn,
