@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base (layers [1, 4, 7, 10] with 10% worst-k quantile filtering)
-+ AlexNet Multi-Layer DISTS & Gram SSIM across a 3-scale spatial pyramid (1.0x, 0.75x, 0.50x).
+Combines DINOv2-Base (blocks [0, 3, 6, 9, 11]) + AlexNet Multi-Layer DISTS & Gram SSIM
+with 100% channel preservation (pf=1.0) across a 3-scale spatial pyramid.
 """
 import torch
 import torch.nn as nn
@@ -25,9 +25,9 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        # Extract blocks 1, 4, 7, 10 to include early fine-texture representations
-        self.layer_indices = [1, 4, 7, 10]
-        self.layer_weights = [0.35, 0.30, 0.20, 0.15]
+        # Include block 0 for low-level structural patch details
+        self.layer_indices = [0, 3, 6, 9, 11]
+        self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
 
     @torch.no_grad()
     def forward(self, x):
@@ -60,7 +60,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
     1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS Similarity.
-    2. AlexNet multi-layer DISTS + Gram SSIM.
+    2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
     3. 3-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
     """
 
@@ -72,7 +72,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
                  w_secondary_cnn=0.16,
                  worst_k_ratio=0.10,
                  ws=4,
-                 pf=0.6,
+                 pf=1.0,
                  xi=1e-6,
                  multiscale=True):
         super().__init__()
@@ -246,7 +246,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s50 = self._single_scale_forward(ref_50, dist_50)
 
         torch.cuda.empty_cache()
-        return 0.45 * s1 + 0.35 * s75 + 0.20 * s50
+        return 0.50 * s1 + 0.35 * s75 + 0.15 * s50
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
@@ -265,7 +265,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Base [1,4,7,10] + AlexNet)"
+    description = "Training-Free Foundation Hybrid (DINOv2 Base [0,3,6,9,11] + AlexNet 100% channels)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
