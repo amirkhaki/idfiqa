@@ -10,6 +10,7 @@ from .enhanced import IDFIQA_Enhanced, EnhancedSSIMExperiment
 from .augmented import ToolAugmentedBaseline, AugmentedExperiment
 from .local_dists import *
 from .localdists import LocalDISTSExperiment
+from .foundation_hybrid import IDFIQA_FoundationHybrid, FoundationHybridExperiment
 __all__ = [
     "IDFIQA_Baseline", "BaselineExperiment",
     "IDFIQA_Causal", "CausalExperiment",
@@ -20,4 +21,6 @@ __all__ = [
     "HHSIMModel", "HHSIMExperiment",
     "IDFIQA_Enhanced", "EnhancedSSIMExperiment",
     "LocalDISTSExperiment",
+    "IDFIQA_FoundationHybrid", "FoundationHybridExperiment",
 ]
+

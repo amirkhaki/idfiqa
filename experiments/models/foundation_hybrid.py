@@ -1,0 +1,287 @@
+"""
+Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
+Combines DINOv2 self-supervised patch/CLS token similarity with CNN Gram-SSIM & Local DISTS,
+enhanced with worst-k quantile patch weighting and multi-scale pyramid aggregation.
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from ..config import CFG
+from ..extractors import make_multi_extractor
+from ..registry import DefaultExperiment, register_experiment
+from ..helpers import run_slug, run_config
+
+
+class DINOv2Extractor(nn.Module):
+    """Loads DINOv2 model and extracts intermediate patch/CLS tokens."""
+
+    def __init__(self, model_name="dinov2_vitb14", device=None):
+        super().__init__()
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = torch.hub.load("facebookresearch/dinov2", model_name)
+        self.model = self.model.to(self.device).eval()
+        for p in self.model.parameters():
+            p.requires_grad = False
+
+    def forward(self, x):
+        # Input x is expected to be in range [0, 1] normalized with ImageNet mean/std
+        # DINOv2 expects image dimensions divisible by patch size (14)
+        B, C, H, W = x.shape
+        pad_h = (14 - H % 14) % 14
+        pad_w = (14 - W % 14) % 14
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h), mode="reflect")
+
+        out = self.model.get_intermediate_layers(x.to(self.device), n=4, return_class_token=True)
+        return out
+
+
+class IDFIQA_FoundationHybrid(nn.Module):
+    """
+    Training-Free Foundation Hybrid Model combining:
+    1. DINOv2 patch & CLS token cosine similarity with worst-k quantile filtering.
+    2. Multi-layer CNN (VGG16 / ConvNeXt) Local DISTS and Gram SSIM.
+    3. Multi-scale pyramid processing (1.0x, 0.75x, 0.5x).
+    """
+
+    def __init__(self, dino_model_name="dinov2_vitb14",
+                 cnn_backbone="vgg16",
+                 device=None,
+                 alpha=0.5,       # Weight for DINOv2
+                 beta=0.3,        # Weight for Local DISTS
+                 gamma=0.2,       # Weight for Gram SSIM
+                 worst_k_ratio=0.15,
+                 ws=4,
+                 pf=0.6,
+                 xi=1e-6,
+                 multiscale=True):
+        super().__init__()
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.worst_k_ratio = worst_k_ratio
+        self.ws = ws
+        self.pf = pf
+        self.xi = xi
+        self.multiscale = multiscale
+
+        # 1. Initialize DINOv2
+        self.dino = None
+        try:
+            self.dino = DINOv2Extractor(dino_model_name, device=self.device)
+            print(f"[IDFIQA_FoundationHybrid] Successfully loaded DINOv2 ({dino_model_name})")
+        except Exception as e:
+            print(f"[IDFIQA_FoundationHybrid] DINOv2 load warning: {e}. Will rely on CNN multi-layer features.")
+
+        # 2. Initialize CNN multi-layer extractor
+        self.cnn_backbone = cnn_backbone
+        if "vgg" in cnn_backbone:
+            cnn_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
+        elif "convnext" in cnn_backbone:
+            cnn_layers = ["features.1", "features.3", "features.5", "features.7"]
+        elif "alexnet" in cnn_backbone:
+            cnn_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
+        else:
+            cnn_layers = ["layer1", "layer2", "layer3", "layer4"]
+
+        self.cnn_ext, self.cnn_norm = make_multi_extractor(cnn_backbone, cnn_layers)
+        self.cnn_ext = self.cnn_ext.to(self.device).eval()
+        for p in self.cnn_ext.parameters():
+            p.requires_grad = False
+
+    @staticmethod
+    def _gram(feat):
+        n, c, h, w = feat.shape
+        f = feat.view(n, c, h * w)
+        return torch.bmm(f, f.transpose(1, 2)) / (h * w)
+
+    def _select_channels(self, feat_ref, feat_dist):
+        if self.pf >= 1.0:
+            return feat_ref, feat_dist
+        n, c, h, w = feat_ref.shape
+        k = max(1, int(c * self.pf))
+        var = torch.var(feat_ref, dim=(2, 3), unbiased=False)
+        _, idx = torch.topk(var, k, dim=1)
+        idx_r = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, h, w)
+        s_ref = torch.gather(feat_ref, 1, idx_r)
+        _, _, hd, wd = feat_dist.shape
+        idx_d = idx.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, hd, wd)
+        s_dist = torch.gather(feat_dist, 1, idx_d)
+        return s_ref, s_dist
+
+    def _compute_dino_score(self, ref, dist):
+        if self.dino is None:
+            return None
+
+        out_r = self.dino(ref)
+        out_d = self.dino(dist)
+
+        layer_scores = []
+        for (pr, clsr), (pd, clsd) in zip(out_r, out_d):
+            # Patch token cosine similarity
+            pr_norm = F.normalize(pr, p=2, dim=-1)
+            pd_norm = F.normalize(pd, p=2, dim=-1)
+            patch_sim = (pr_norm * pd_norm).sum(dim=-1)  # (B, N)
+
+            # Mean similarity & worst-k quantile similarity
+            mean_sim = patch_sim.mean(dim=1)  # (B,)
+            k_val = max(1, int(patch_sim.shape[1] * self.worst_k_ratio))
+            worst_sim = torch.topk(patch_sim, k_val, dim=1, largest=False)[0].mean(dim=1)  # (B,)
+
+            patch_score = 0.7 * mean_sim + 0.3 * worst_sim
+
+            # CLS token cosine similarity
+            clsr_norm = F.normalize(clsr, p=2, dim=-1)
+            clsd_norm = F.normalize(clsd, p=2, dim=-1)
+            cls_score = (clsr_norm * clsd_norm).sum(dim=-1)  # (B,)
+
+            layer_score = 0.8 * patch_score + 0.2 * cls_score
+            layer_scores.append(layer_score)
+
+        return torch.stack(layer_scores, dim=0).mean(dim=0)
+
+    def _compute_cnn_score(self, ref, dist):
+        out_r = self.cnn_ext(self.cnn_norm(ref.to(self.device)))
+        out_d = self.cnn_ext(self.cnn_norm(dist.to(self.device)))
+
+        dists_scores = []
+        gram_scores = []
+
+        for k in out_r.keys():
+            fr = out_r[k]
+            fd = out_d[k]
+            if fr.dim() == 2:
+                fr = fr.unsqueeze(-1).unsqueeze(-1)
+                fd = fd.unsqueeze(-1).unsqueeze(-1)
+
+            # Local DISTS
+            pad = self.ws // 2
+            pool = nn.AvgPool2d(kernel_size=self.ws, stride=1, padding=pad)
+            mr = pool(fr)
+            md = pool(fd)
+            vr = torch.clamp(pool(fr ** 2) - mr ** 2, min=0.0)
+            vd = torch.clamp(pool(fd ** 2) - md ** 2, min=0.0)
+            cov = pool(fr * fd) - mr * md
+            s_mean = (2 * mr * md + self.xi) / (mr ** 2 + md ** 2 + self.xi)
+            s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
+            dists_map = s_mean * s_var
+            dists_scores.append(dists_map.mean(dim=(1, 2, 3)))
+
+            # Gram SSIM
+            if self.pf < 1.0:
+                fr_sel, fd_sel = self._select_channels(fr, fd)
+            else:
+                fr_sel, fd_sel = fr, fd
+
+            if fr_sel.shape[2] >= self.ws and fr_sel.shape[3] >= self.ws:
+                gr = self._gram(fr_sel)
+                gd = self._gram(fd_sel)
+                gr_u = F.unfold(gr.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
+                gd_u = F.unfold(gd.unsqueeze(1), kernel_size=self.ws, stride=1).transpose(1, 2)
+                vr_g = torch.var(gr_u, dim=2, unbiased=False)
+                vd_g = torch.var(gd_u, dim=2, unbiased=False)
+                mr_g = torch.mean(gr_u, dim=2, keepdim=True)
+                md_g = torch.mean(gd_u, dim=2, keepdim=True)
+                cov_g = torch.mean((gr_u - mr_g) * (gd_u - md_g), dim=2)
+                local_gram = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
+                gram_scores.append(local_gram.mean(dim=1))
+            else:
+                n, c = fr_sel.shape[:2]
+                fr_flat = fr_sel.view(n, c, -1)
+                fd_flat = fd_sel.view(n, c, -1)
+                gr = torch.bmm(fr_flat, fr_flat.transpose(1, 2)) / fr_flat.shape[2]
+                gd = torch.bmm(fd_flat, fd_flat.transpose(1, 2)) / fd_flat.shape[2]
+                vr_g = torch.var(gr, dim=(1, 2), unbiased=False)
+                vd_g = torch.var(gd, dim=(1, 2), unbiased=False)
+                mr_g = torch.mean(gr, dim=(1, 2))
+                md_g = torch.mean(gd, dim=(1, 2))
+                cov_g = torch.mean((gr - mr_g.unsqueeze(-1).unsqueeze(-1)) * (gd - md_g.unsqueeze(-1).unsqueeze(-1)), dim=(1, 2))
+                s_mean_g = (2 * mr_g * md_g + self.xi) / (mr_g ** 2 + md_g ** 2 + self.xi)
+                s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
+                gram_scores.append(s_mean_g * s_var_g)
+
+        dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
+        gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
+        return dists_score, gram_score
+
+    def _single_scale_forward(self, ref, dist):
+        dino_score = self._compute_dino_score(ref, dist)
+        dists_score, gram_score = self._compute_cnn_score(ref, dist)
+
+        if dino_score is not None:
+            total_w = self.alpha + self.beta + self.gamma
+            return (self.alpha * dino_score + self.beta * dists_score + self.gamma * gram_score) / total_w
+        else:
+            total_w = self.beta + self.gamma
+            return (self.beta * dists_score + self.gamma * gram_score) / total_w
+
+    def forward(self, ref, dist):
+        s1 = self._single_scale_forward(ref, dist)
+
+        if not self.multiscale:
+            return s1
+
+        # Scale 0.75x
+        ref_75 = F.interpolate(ref, scale_factor=0.75, mode="bilinear", align_corners=False)
+        dist_75 = F.interpolate(dist, scale_factor=0.75, mode="bilinear", align_corners=False)
+        s75 = self._single_scale_forward(ref_75, dist_75)
+
+        # Scale 0.5x
+        ref_50 = F.interpolate(ref, scale_factor=0.5, mode="bilinear", align_corners=False)
+        dist_50 = F.interpolate(dist, scale_factor=0.5, mode="bilinear", align_corners=False)
+        s50 = self._single_scale_forward(ref_50, dist_50)
+
+        return 0.5 * s1 + 0.3 * s75 + 0.2 * s50
+
+
+def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="vgg16",
+                             alpha=0.5, beta=0.3, gamma=0.2, multiscale=True):
+    return IDFIQA_FoundationHybrid(
+        dino_model_name=dino_model,
+        cnn_backbone=cnn_backbone,
+        device=device,
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        multiscale=multiscale,
+    )
+
+
+@register_experiment
+class FoundationHybridExperiment(DefaultExperiment):
+    name = "foundation_hybrid"
+    description = "Training-Free Foundation Hybrid (DINOv2 + CNN DISTS + Gram SSIM)"
+    summary_prefix = "foundation_hybrid"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--dino-model", type=str, default="dinov2_vitb14",
+                            choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
+        parser.add_argument("--cnn-backbone", type=str, default="vgg16",
+                            choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
+        parser.add_argument("--alpha", type=float, default=0.5, help="Weight for DINOv2")
+        parser.add_argument("--beta", type=float, default=0.3, help="Weight for Local DISTS")
+        parser.add_argument("--gamma", type=float, default=0.2, help="Weight for Gram SSIM")
+        parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
+
+    def slug_args(self, args):
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "ms"
+        dino_name = getattr(args, "dino_model", "dinov2_vitb14")
+        cnn_name = getattr(args, "cnn_backbone", "vgg16")
+        return {
+            "backbone": f"{dino_name}_{cnn_name}",
+            "feature_layer": f"fh_a{args.alpha}_b{args.beta}_g{args.gamma}_{ms_str}"
+        }
+
+    def build_model(self, device, args):
+        ms = not getattr(args, "no_multiscale", False)
+        return _build_foundation_hybrid(
+            device=device,
+            dino_model=args.dino_model,
+            cnn_backbone=args.cnn_backbone,
+            alpha=args.alpha,
+            beta=args.beta,
+            gamma=args.gamma,
+            multiscale=ms
+        )
