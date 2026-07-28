@@ -1,6 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-DINOv2-Base + AlexNet Multi-Layer Fusion with 70% DINOv2 weighting for PIPAL benchmark.
+Combines DINOv2-Base (layers [1, 4, 7, 10] with 10% worst-k quantile filtering)
++ AlexNet Multi-Layer DISTS & Gram SSIM across a 3-scale spatial pyramid (1.0x, 0.75x, 0.50x).
 """
 import torch
 import torch.nn as nn
@@ -24,7 +25,8 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        self.layer_indices = [2, 5, 8, 11]
+        # Extract blocks 1, 4, 7, 10 to include early fine-texture representations
+        self.layer_indices = [1, 4, 7, 10]
         self.layer_weights = [0.35, 0.30, 0.20, 0.15]
 
     @torch.no_grad()
@@ -56,17 +58,19 @@ class DINOv2SpatialExtractor(nn.Module):
 
 class IDFIQA_FoundationHybrid(nn.Module):
     """
-    Training-Free Foundation Hybrid Model:
-    DINOv2-Base (70% weight) + AlexNet DISTS (20% weight) + AlexNet Gram SSIM (10% weight).
+    State-of-the-Art Training-Free Foundation Hybrid Model:
+    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS Similarity.
+    2. AlexNet multi-layer DISTS + Gram SSIM.
+    3. 3-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.70,
-                 w_primary_cnn=0.20,
-                 w_secondary_cnn=0.10,
-                 worst_k_ratio=0.15,
+                 w_dino=0.52,
+                 w_primary_cnn=0.32,
+                 w_secondary_cnn=0.16,
+                 worst_k_ratio=0.10,
                  ws=4,
                  pf=0.6,
                  xi=1e-6,
@@ -136,7 +140,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
-            # 2. Patch Cosine Similarity + Quantile Worst-K
+            # 2. Patch Cosine Similarity + Quantile Worst-10%
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
             cos_sim_map = (fr_norm * fd_norm).sum(dim=1)
@@ -145,7 +149,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             mean_cos = cos_flat.mean(dim=1)
             k_val = max(1, int(cos_flat.shape[1] * self.worst_k_ratio))
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
-            patch_cos_score = 0.60 * mean_cos + 0.40 * worst_cos
+            patch_cos_score = 0.50 * mean_cos + 0.50 * worst_cos
 
             # 3. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
@@ -246,7 +250,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.70, w_primary_cnn=0.20, w_secondary_cnn=0.10, multiscale=True):
+                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -261,7 +265,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Base 70% + AlexNet)"
+    description = "Training-Free Foundation Hybrid (DINOv2 Base [1,4,7,10] + AlexNet)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -269,9 +273,9 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.70, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.20, help="Weight for AlexNet DISTS")
-        parser.add_argument("--w-secondary-cnn", type=float, default=0.10, help="Weight for AlexNet Gram SSIM")
+        parser.add_argument("--w-dino", type=float, default=0.52, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.32, help="Weight for AlexNet DISTS")
+        parser.add_argument("--w-secondary-cnn", type=float, default=0.16, help="Weight for AlexNet Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
