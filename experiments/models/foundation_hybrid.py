@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base 2D Spatial Features + AlexNet Multi-Layer Features
-+ LCG (Luminance, Chrominance, Gradient) Perceptual Similarity across 3 Pyramid Scales.
+Combines DINOv2-Base Multi-Layer Spatial DISTS + Spatial Gram SSIM
++ AlexNet Multi-Layer DISTS & Gram SSIM across a 3-scale spatial pyramid.
 """
 import torch
 import torch.nn as nn
@@ -25,7 +25,8 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        self.layer_indices = [2, 5, 8, 11]
+        # Extract blocks 3, 6, 9, 11 for broad semantic & structural coverage
+        self.layer_indices = [3, 6, 9, 11]
         self.layer_weights = [0.35, 0.30, 0.20, 0.15]
 
     @torch.no_grad()
@@ -58,18 +59,17 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Worst-K Quantile + CLS Similarity.
-    2. AlexNet multi-layer DISTS + Gram SSIM.
-    3. LCG (Luminance, Chrominance & Sobel Gradient Magnitude Similarity).
-    4. Multi-Scale Pyramid (1.0x, 0.75x, 0.50x).
+    1. DINOv2 Spatial DISTS + Spatial Gram SSIM + Patch Cosine Worst-K + CLS Similarity.
+    2. AlexNet Multi-Layer Local DISTS + Gram SSIM.
+    3. Multi-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.50,
-                 w_cnn=0.35,
-                 w_lcg=0.15,
+                 w_dino=0.60,
+                 w_cnn_dists=0.25,
+                 w_cnn_gram=0.15,
                  worst_k_ratio=0.20,
                  ws=4,
                  pf=0.6,
@@ -78,8 +78,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.w_dino = w_dino
-        self.w_cnn = w_cnn
-        self.w_lcg = w_lcg
+        self.w_cnn_dists = w_cnn_dists
+        self.w_cnn_gram = w_cnn_gram
         self.worst_k_ratio = worst_k_ratio
         self.ws = ws
         self.pf = pf
@@ -102,12 +102,6 @@ class IDFIQA_FoundationHybrid(nn.Module):
         for p in self.cnn_ext.parameters():
             p.requires_grad = False
 
-        # Sobel filters for Gradient Magnitude on device
-        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(self.device)
-        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(self.device)
-        self.register_buffer("sobel_x", sobel_x)
-        self.register_buffer("sobel_y", sobel_y)
-
     @staticmethod
     def _gram(feat):
         n, c, h, w = feat.shape
@@ -129,54 +123,13 @@ class IDFIQA_FoundationHybrid(nn.Module):
         return s_ref, s_dist
 
     @torch.no_grad()
-    def _compute_lcg_score(self, ref, dist):
-        ref = ref.to(self.device)
-        dist = dist.to(self.device)
-
-        y_r = 0.299 * ref[:, 0:1] + 0.587 * ref[:, 1:2] + 0.114 * ref[:, 2:3]
-        y_d = 0.299 * dist[:, 0:1] + 0.587 * dist[:, 1:2] + 0.114 * dist[:, 2:3]
-
-        cb_r = -0.168736 * ref[:, 0:1] - 0.331264 * ref[:, 1:2] + 0.5 * ref[:, 2:3]
-        cb_d = -0.168736 * dist[:, 0:1] - 0.331264 * dist[:, 1:2] + 0.5 * dist[:, 2:3]
-
-        cr_r = 0.5 * ref[:, 0:1] - 0.418688 * ref[:, 1:2] - 0.081312 * ref[:, 2:3]
-        cr_d = 0.5 * dist[:, 0:1] - 0.418688 * dist[:, 1:2] - 0.081312 * dist[:, 2:3]
-
-        # 1. Luminance SSIM
-        mu_yr, mu_yd = F.avg_pool2d(y_r, 7, 1, 3), F.avg_pool2d(y_d, 7, 1, 3)
-        sigma2_yr = torch.clamp(F.avg_pool2d(y_r ** 2, 7, 1, 3) - mu_yr ** 2, min=0.0)
-        sigma2_yd = torch.clamp(F.avg_pool2d(y_d ** 2, 7, 1, 3) - mu_yd ** 2, min=0.0)
-        sigma_yrd = F.avg_pool2d(y_r * y_d, 7, 1, 3) - mu_yr * mu_yd
-        s_lum = (2 * mu_yr * mu_yd + 0.01) * (2 * sigma_yrd + 0.03) / ((mu_yr ** 2 + mu_yd ** 2 + 0.01) * (sigma2_yr + sigma2_yd + 0.03))
-
-        # 2. Chrominance Similarity
-        mu_cbr, mu_cbd = F.avg_pool2d(cb_r, 7, 1, 3), F.avg_pool2d(cb_d, 7, 1, 3)
-        mu_crr, mu_crd = F.avg_pool2d(cr_r, 7, 1, 3), F.avg_pool2d(cr_d, 7, 1, 3)
-        s_chrom = ((2 * mu_cbr * mu_cbd + 0.01) / (mu_cbr ** 2 + mu_cbd ** 2 + 0.01)) * ((2 * mu_crr * mu_crd + 0.01) / (mu_crr ** 2 + mu_crd ** 2 + 0.01))
-
-        # 3. Sobel Gradient Magnitude Similarity
-        sx = self.sobel_x.to(ref.device)
-        sy = self.sobel_y.to(ref.device)
-        gx_r = F.conv2d(y_r, sx, padding=1)
-        gy_r = F.conv2d(y_r, sy, padding=1)
-        grad_r = torch.sqrt(gx_r ** 2 + gy_r ** 2 + 1e-8)
-
-        gx_d = F.conv2d(y_d, sx, padding=1)
-        gy_d = F.conv2d(y_d, sy, padding=1)
-        grad_d = torch.sqrt(gx_d ** 2 + gy_d ** 2 + 1e-8)
-
-        s_grad = (2 * grad_r * grad_d + 0.05) / (grad_r ** 2 + grad_d ** 2 + 0.05)
-
-        lcg_map = s_lum * s_chrom * s_grad
-        return lcg_map.mean(dim=(1, 2, 3))
-
-    @torch.no_grad()
     def _compute_dino_score(self, ref, dist):
         maps_r, cls_r = self.dino(ref)
         maps_d, cls_d = self.dino(dist)
 
         weighted_layer_scores = []
         for (fr, fd, cr, cd), lw in zip(zip(maps_r, maps_d, cls_r, cls_d), self.dino.layer_weights):
+            # 1. DISTS SSIM on 2D spatial feature map
             mr = torch.mean(fr, dim=(2, 3), keepdim=True)
             md = torch.mean(fd, dim=(2, 3), keepdim=True)
             vr = torch.var(fr, dim=(2, 3), unbiased=False, keepdim=True)
@@ -187,6 +140,19 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
+            # 2. DINO Spatial Gram SSIM
+            gr = self._gram(fr)
+            gd = self._gram(fd)
+            vr_g = torch.var(gr, dim=(1, 2), unbiased=False)
+            vd_g = torch.var(gd, dim=(1, 2), unbiased=False)
+            mr_g = torch.mean(gr, dim=(1, 2))
+            md_g = torch.mean(gd, dim=(1, 2))
+            cov_g = torch.mean((gr - mr_g.unsqueeze(-1).unsqueeze(-1)) * (gd - md_g.unsqueeze(-1).unsqueeze(-1)), dim=(1, 2))
+            s_mean_g = (2 * mr_g * md_g + self.xi) / (mr_g ** 2 + md_g ** 2 + self.xi)
+            s_var_g = (2 * cov_g + self.xi) / (vr_g + vd_g + self.xi)
+            gram_dino_score = s_mean_g * s_var_g
+
+            # 3. Patch Cosine Similarity + Quantile Worst-K
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
             cos_sim_map = (fr_norm * fd_norm).sum(dim=1)
@@ -197,11 +163,12 @@ class IDFIQA_FoundationHybrid(nn.Module):
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
             patch_cos_score = 0.50 * mean_cos + 0.50 * worst_cos
 
+            # 4. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
             cd_norm = F.normalize(cd, p=2, dim=1)
             cls_score = (cr_norm * cd_norm).sum(dim=1)
 
-            layer_score = 0.45 * dists_score + 0.45 * patch_cos_score + 0.10 * cls_score
+            layer_score = 0.35 * dists_score + 0.20 * gram_dino_score + 0.35 * patch_cos_score + 0.10 * cls_score
             weighted_layer_scores.append(lw * layer_score)
 
         total_weight = sum(self.dino.layer_weights)
@@ -264,16 +231,15 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
-        return 0.6 * dists_score + 0.4 * gram_score
+        return dists_score, gram_score
 
     @torch.no_grad()
     def _single_scale_forward(self, ref, dist):
         s_dino = self._compute_dino_score(ref, dist)
-        s_cnn = self._compute_cnn_score(ref, dist)
-        s_lcg = self._compute_lcg_score(ref, dist)
+        s_dists, s_gram = self._compute_cnn_score(ref, dist)
 
-        total_w = self.w_dino + self.w_cnn + self.w_lcg
-        return (self.w_dino * s_dino + self.w_cnn * s_cnn + self.w_lcg * s_lcg) / total_w
+        total_w = self.w_dino + self.w_cnn_dists + self.w_cnn_gram
+        return (self.w_dino * s_dino + self.w_cnn_dists * s_dists + self.w_cnn_gram * s_gram) / total_w
 
     @torch.no_grad()
     def forward(self, ref, dist):
@@ -296,14 +262,14 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.50, w_cnn=0.35, w_lcg=0.15, multiscale=True):
+                             w_dino=0.60, w_cnn_dists=0.25, w_cnn_gram=0.15, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
         device=device,
         w_dino=w_dino,
-        w_cnn=w_cnn,
-        w_lcg=w_lcg,
+        w_cnn_dists=w_cnn_dists,
+        w_cnn_gram=w_cnn_gram,
         multiscale=multiscale,
     )
 
@@ -311,7 +277,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + LCG)"
+    description = "Training-Free Foundation Hybrid (DINOv2 Spatial Gram & DISTS + AlexNet)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -319,9 +285,9 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.50, help="Weight for DINOv2")
-        parser.add_argument("--w-cnn", type=float, default=0.35, help="Weight for CNN (AlexNet)")
-        parser.add_argument("--w-lcg", type=float, default=0.15, help="Weight for LCG metric")
+        parser.add_argument("--w-dino", type=float, default=0.60, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.25, help="Weight for CNN DISTS")
+        parser.add_argument("--w-secondary-cnn", type=float, default=0.15, help="Weight for CNN Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
@@ -329,8 +295,8 @@ class FoundationHybridExperiment(DefaultExperiment):
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
-            "backbone": f"{dino_name}_{cnn_name}_lcg",
-            "feature_layer": f"fh_wd{args.w_dino}_wc{args.w_cnn}_wl{args.w_lcg}_{ms_str}"
+            "backbone": f"{dino_name}_{cnn_name}",
+            "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
     def build_model(self, device, args):
@@ -340,7 +306,7 @@ class FoundationHybridExperiment(DefaultExperiment):
             dino_model=args.dino_model,
             cnn_backbone=args.cnn_backbone,
             w_dino=args.w_dino,
-            w_cnn=args.w_cnn,
-            w_lcg=args.w_lcg,
+            w_cnn_dists=args.w_primary_cnn,
+            w_cnn_gram=args.w_secondary_cnn,
             multiscale=ms
         )
