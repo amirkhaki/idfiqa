@@ -102,9 +102,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
         for p in self.cnn_ext.parameters():
             p.requires_grad = False
 
-        # Sobel filters for Gradient Magnitude
-        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3)
-        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3)
+        # Sobel filters for Gradient Magnitude on device
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(self.device)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(self.device)
         self.register_buffer("sobel_x", sobel_x)
         self.register_buffer("sobel_y", sobel_y)
 
@@ -130,10 +130,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
     @torch.no_grad()
     def _compute_lcg_score(self, ref, dist):
-        # Convert RGB to YCbCr components
-        # Y = 0.299R + 0.587G + 0.114B
-        # Cb = -0.1687R - 0.3313G + 0.5B + 0.5
-        # Cr = 0.5R - 0.4187G - 0.0813B + 0.5
+        ref = ref.to(self.device)
+        dist = dist.to(self.device)
+
         y_r = 0.299 * ref[:, 0:1] + 0.587 * ref[:, 1:2] + 0.114 * ref[:, 2:3]
         y_d = 0.299 * dist[:, 0:1] + 0.587 * dist[:, 1:2] + 0.114 * dist[:, 2:3]
 
@@ -156,12 +155,14 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s_chrom = ((2 * mu_cbr * mu_cbd + 0.01) / (mu_cbr ** 2 + mu_cbd ** 2 + 0.01)) * ((2 * mu_crr * mu_crd + 0.01) / (mu_crr ** 2 + mu_crd ** 2 + 0.01))
 
         # 3. Sobel Gradient Magnitude Similarity
-        gx_r = F.conv2d(y_r, self.sobel_x, padding=1)
-        gy_r = F.conv2d(y_r, self.sobel_y, padding=1)
+        sx = self.sobel_x.to(ref.device)
+        sy = self.sobel_y.to(ref.device)
+        gx_r = F.conv2d(y_r, sx, padding=1)
+        gy_r = F.conv2d(y_r, sy, padding=1)
         grad_r = torch.sqrt(gx_r ** 2 + gy_r ** 2 + 1e-8)
 
-        gx_d = F.conv2d(y_d, self.sobel_x, padding=1)
-        gy_d = F.conv2d(y_d, self.sobel_y, padding=1)
+        gx_d = F.conv2d(y_d, sx, padding=1)
+        gy_d = F.conv2d(y_d, sy, padding=1)
         grad_d = torch.sqrt(gx_d ** 2 + gy_d ** 2 + 1e-8)
 
         s_grad = (2 * grad_r * grad_d + 0.05) / (grad_r ** 2 + grad_d ** 2 + 0.05)
