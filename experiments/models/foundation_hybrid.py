@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2 2D Spatial Patch Features (DISTS SSIM + LPIPS) with
-CNN Multi-Layer Features (AlexNet / VGG16 / ConvNeXt),
+Combines DINOv2 2D Spatial Patch Features (DISTS SSIM + Patch Cosine Similarity + CLS Similarity)
+with Multi-CNN Features (AlexNet / ConvNeXt / VGG16),
 enhanced with quantile worst-k patch weighting and multi-scale pyramid aggregation.
 """
 import torch
@@ -17,10 +17,10 @@ from ..helpers import run_slug, run_config
 class DINOv2SpatialExtractor(nn.Module):
     """
     Extracts multi-layer 2D spatial feature maps and CLS tokens from DINOv2.
-    Supports dinov2_vits14, dinov2_vitb14, dinov2_vitl14.
+    Supports dinov2_vits14, dinov2_vitb14, dinov2_vitl14, dinov2_vitg14.
     """
 
-    def __init__(self, model_name="dinov2_vitb14", device=None):
+    def __init__(self, model_name="dinov2_vitl14", device=None):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
@@ -32,6 +32,8 @@ class DINOv2SpatialExtractor(nn.Module):
         # Select intermediate layer indices evenly across depth
         if "vitl14" in model_name:
             self.layer_indices = [5, 11, 17, 23]
+        elif "vitg14" in model_name:
+            self.layer_indices = [9, 19, 29, 39]
         else:
             self.layer_indices = [2, 5, 8, 11]
 
@@ -67,17 +69,17 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     Advanced Foundation Hybrid Model combining:
-    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine Similarity.
+    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine Similarity + CLS Similarity.
     2. CNN multi-layer feature DISTS SSIM + Gram SSIM.
-    3. Multi-scale pyramid processing (1.0x, 0.75x, 0.5x).
+    3. Multi-scale pyramid processing (1.0x, 0.75x, 0.5x, 0.35x).
     """
 
-    def __init__(self, dino_model_name="dinov2_vitb14",
+    def __init__(self, dino_model_name="dinov2_vitl14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.5,      # Weight for DINOv2
-                 w_cnn_dists=0.3, # Weight for CNN DISTS
-                 w_cnn_gram=0.2,  # Weight for CNN Gram SSIM
+                 w_dino=0.6,      # Weight for DINOv2
+                 w_cnn_dists=0.25,# Weight for CNN DISTS
+                 w_cnn_gram=0.15, # Weight for CNN Gram SSIM
                  worst_k_ratio=0.15,
                  ws=4,
                  pf=0.6,
@@ -167,14 +169,14 @@ class IDFIQA_FoundationHybrid(nn.Module):
             mean_cos = cos_flat.mean(dim=1)
             k_val = max(1, int(cos_flat.shape[1] * self.worst_k_ratio))
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
-            patch_cos_score = 0.7 * mean_cos + 0.3 * worst_cos
+            patch_cos_score = 0.65 * mean_cos + 0.35 * worst_cos
 
             # 3. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
             cd_norm = F.normalize(cd, p=2, dim=1)
             cls_score = (cr_norm * cd_norm).sum(dim=1)
 
-            score = 0.4 * dists_score + 0.4 * patch_cos_score + 0.2 * cls_score
+            score = 0.45 * dists_score + 0.45 * patch_cos_score + 0.1 * cls_score
             layer_scores.append(score)
 
         return torch.stack(layer_scores, dim=0).mean(dim=0)
@@ -260,7 +262,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
         if not self.multiscale:
             return s1
 
-        # Multi-scale 0.75x and 0.5x
+        # Multi-scale 0.75x, 0.5x, 0.35x
         ref_75 = F.interpolate(ref, scale_factor=0.75, mode="bilinear", align_corners=False)
         dist_75 = F.interpolate(dist, scale_factor=0.75, mode="bilinear", align_corners=False)
         s75 = self._single_scale_forward(ref_75, dist_75)
@@ -269,11 +271,15 @@ class IDFIQA_FoundationHybrid(nn.Module):
         dist_50 = F.interpolate(dist, scale_factor=0.5, mode="bilinear", align_corners=False)
         s50 = self._single_scale_forward(ref_50, dist_50)
 
-        return 0.5 * s1 + 0.3 * s75 + 0.2 * s50
+        ref_35 = F.interpolate(ref, scale_factor=0.35, mode="bilinear", align_corners=False)
+        dist_35 = F.interpolate(dist, scale_factor=0.35, mode="bilinear", align_corners=False)
+        s35 = self._single_scale_forward(ref_35, dist_35)
+
+        return 0.4 * s1 + 0.3 * s75 + 0.2 * s50 + 0.1 * s35
 
 
-def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.5, w_cnn_dists=0.3, w_cnn_gram=0.2, multiscale=True):
+def _build_foundation_hybrid(device, dino_model="dinov2_vitl14", cnn_backbone="alexnet",
+                             w_dino=0.6, w_cnn_dists=0.25, w_cnn_gram=0.15, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -292,18 +298,18 @@ class FoundationHybridExperiment(DefaultExperiment):
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
-        parser.add_argument("--dino-model", type=str, default="dinov2_vitb14",
-                            choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
+        parser.add_argument("--dino-model", type=str, default="dinov2_vitl14",
+                            choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14", "dinov2_vitg14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.5, help="Weight for DINOv2")
-        parser.add_argument("--w-cnn-dists", type=float, default=0.3, help="Weight for CNN DISTS")
-        parser.add_argument("--w-cnn-gram", type=float, default=0.2, help="Weight for CNN Gram SSIM")
+        parser.add_argument("--w-dino", type=float, default=0.6, help="Weight for DINOv2")
+        parser.add_argument("--w-cnn-dists", type=float, default=0.25, help="Weight for CNN DISTS")
+        parser.add_argument("--w-cnn-gram", type=float, default=0.15, help="Weight for CNN Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
         ms_str = "single" if getattr(args, "no_multiscale", False) else "ms"
-        dino_name = getattr(args, "dino_model", "dinov2_vitb14")
+        dino_name = getattr(args, "dino_model", "dinov2_vitl14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
             "backbone": f"{dino_name}_{cnn_name}",
