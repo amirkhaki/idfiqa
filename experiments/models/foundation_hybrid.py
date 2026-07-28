@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
 Combines DINOv2-Base 2D Spatial Features + AlexNet Multi-Layer Features
-+ LCG (Luminance, Chrominance, Gradient) Perceptual Similarity across 4 Pyramid Scales.
++ LCG (Luminance, Chrominance, Gradient) Perceptual Similarity across 3 Pyramid Scales.
 """
 import torch
 import torch.nn as nn
@@ -61,7 +61,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
     1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Worst-K Quantile + CLS Similarity.
     2. AlexNet multi-layer DISTS + Gram SSIM.
     3. LCG (Luminance, Chrominance & Sobel Gradient Magnitude Similarity).
-    4. 4-Scale Pyramid (1.0x, 0.75x, 0.50x, 0.25x).
+    4. Multi-Scale Pyramid (1.0x, 0.75x, 0.50x).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
@@ -282,7 +282,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
         if not self.multiscale:
             return s1
 
-        # 4-Scale Pyramid: 1.0x, 0.75x, 0.50x, 0.25x
+        # 3-Scale Pyramid: 1.0x, 0.75x, 0.50x
         ref_75 = F.interpolate(ref, scale_factor=0.75, mode="bilinear", align_corners=False)
         dist_75 = F.interpolate(dist, scale_factor=0.75, mode="bilinear", align_corners=False)
         s75 = self._single_scale_forward(ref_75, dist_75)
@@ -291,12 +291,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
         dist_50 = F.interpolate(dist, scale_factor=0.50, mode="bilinear", align_corners=False)
         s50 = self._single_scale_forward(ref_50, dist_50)
 
-        ref_25 = F.interpolate(ref, scale_factor=0.25, mode="bilinear", align_corners=False)
-        dist_25 = F.interpolate(dist, scale_factor=0.25, mode="bilinear", align_corners=False)
-        s25 = self._single_scale_forward(ref_25, dist_25)
-
         torch.cuda.empty_cache()
-        return 0.35 * s1 + 0.30 * s75 + 0.20 * s50 + 0.15 * s25
+        return 0.45 * s1 + 0.35 * s75 + 0.20 * s50
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
