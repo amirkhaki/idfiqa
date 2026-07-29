@@ -1,7 +1,8 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base (blocks [0, 3, 6, 9, 11]) + AlexNet Multi-Layer DISTS & Gram SSIM
-with 4-View Zoom-IQA Native Resolution Crop Inspection (Global 50% + Center 20% + Texture 15% + High-Gradient Edge 15%).
+Combines DINOv2-Base (blocks [0, 3, 6, 9, 11]) with Relative Feature Variance Penalty
++ AlexNet Multi-Layer DISTS & Gram SSIM
++ 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
 """
 import torch
 import torch.nn as nn
@@ -58,9 +59,9 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS Similarity.
-    2. AlexNet multi-layer DISTS + Gram SSIM.
-    3. 4-View Zoom-IQA Native Resolution Inspection (Global 50% + Center 20% + Texture 15% + Edge 15%).
+    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Relative Variance Penalty + Quantile Worst-10% + CLS Similarity.
+    2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
+    3. 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
@@ -101,12 +102,6 @@ class IDFIQA_FoundationHybrid(nn.Module):
         for p in self.cnn_ext.parameters():
             p.requires_grad = False
 
-        # Sobel Filters for Edge Crop Extraction
-        sobel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).view(1, 1, 3, 3)
-        sobel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]).view(1, 1, 3, 3)
-        self.register_buffer("sobel_x", sobel_x)
-        self.register_buffer("sobel_y", sobel_y)
-
     @staticmethod
     def _gram(feat):
         n, c, h, w = feat.shape
@@ -145,7 +140,11 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_score = (s_mean * s_var).mean(dim=(1, 2, 3))
 
-            # 2. Patch Cosine Similarity + Quantile Worst-10%
+            # 2. Patch Cosine Similarity + Relative Feature Variance Penalty
+            std_r = vr.sqrt().view(ref.shape[0], -1).mean(dim=1)
+            std_d = vd.sqrt().view(ref.shape[0], -1).mean(dim=1)
+            rel_var_penalty = torch.exp(-0.35 * torch.abs(torch.log((std_r + self.xi) / (std_d + self.xi))))
+
             fr_norm = F.normalize(fr, p=2, dim=1)
             fd_norm = F.normalize(fd, p=2, dim=1)
             cos_sim_map = (fr_norm * fd_norm).sum(dim=1)
@@ -154,7 +153,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
             mean_cos = cos_flat.mean(dim=1)
             k_val = max(1, int(cos_flat.shape[1] * self.worst_k_ratio))
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
-            patch_cos_score = 0.50 * mean_cos + 0.50 * worst_cos
+            patch_cos_score = (0.50 * mean_cos + 0.50 * worst_cos) * rel_var_penalty
 
             # 3. CLS Cosine Similarity
             cr_norm = F.normalize(cr, p=2, dim=1)
@@ -270,27 +269,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
         dist_tex = dist[:, :, top_t:top_t + crop_size, left_t:left_t + crop_size]
         s_zoom_tex = self._single_scale_forward(ref_tex, dist_tex)
 
-        # 4. Zoom-Edge Native Crop (Highest Sobel Gradient Region)
-        gray_r = ref.mean(dim=1, keepdim=True)
-        gx = F.conv2d(gray_r, self.sobel_x.to(ref.device), padding=1)
-        gy = F.conv2d(gray_r, self.sobel_y.to(ref.device), padding=1)
-        edge_map = (gx ** 2 + gy ** 2).sqrt().squeeze()
-
-        if edge_map.dim() == 2:
-            max_e_idx = torch.argmax(edge_map)
-            he_idx, we_idx = max_e_idx // W, max_e_idx % W
-        else:
-            max_e_idx = torch.argmax(edge_map.view(B, -1), dim=1)[0]
-            he_idx, we_idx = max_e_idx // W, max_e_idx % W
-
-        top_e = max(0, min(H - crop_size, int(he_idx) - crop_size // 2))
-        left_e = max(0, min(W - crop_size, int(we_idx) - crop_size // 2))
-        ref_edge = ref[:, :, top_e:top_e + crop_size, left_e:left_e + crop_size]
-        dist_edge = dist[:, :, top_e:top_e + crop_size, left_e:left_e + crop_size]
-        s_zoom_edge = self._single_scale_forward(ref_edge, dist_edge)
-
         torch.cuda.empty_cache()
-        return 0.50 * s_global + 0.20 * s_zoom_center + 0.15 * s_zoom_tex + 0.15 * s_zoom_edge
+        return 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
@@ -309,7 +289,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + 4-View Zoom Native Crops)"
+    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + Relative Variance Penalty + Zoom-IQA)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -323,11 +303,11 @@ class FoundationHybridExperiment(DefaultExperiment):
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom4"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom_rvp"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
-            "backbone": f"{dino_name}_{cnn_name}_zoom4",
+            "backbone": f"{dino_name}_{cnn_name}_zoom_rvp",
             "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
