@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
 Combines DINOv2-Base (blocks [0, 3, 6, 9, 11] with spatial DISTS, Patch Cosine, CLS)
-+ VGG16/AlexNet Multi-Layer Gram SSIM & DISTS
++ AlexNet Multi-Layer Gram SSIM & DISTS (Lightweight & OOM-Safe)
 + 2-View Zoom-IQA Native Resolution Crop Inspection.
 """
 import torch
@@ -60,22 +60,22 @@ class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
     1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
-    2. VGG16/AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
+    2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
     3. 2-View Zoom-IQA Native Resolution Crop Inspection.
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
-                 cnn_backbone="vgg16",
+                 cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.50,
-                 w_primary_cnn=0.25,
-                 w_secondary_cnn=0.25,
+                 w_dino=0.52,
+                 w_primary_cnn=0.32,
+                 w_secondary_cnn=0.16,
                  w_global=0.60,
                  w_zoom_center=0.25,
                  w_zoom_tex=0.15,
                  worst_k_ratio=0.10,
                  ws=4,
-                 pf=0.6,
+                 pf=1.0,
                  xi=1e-6,
                  multiscale=True):
         super().__init__()
@@ -95,11 +95,11 @@ class IDFIQA_FoundationHybrid(nn.Module):
         # 1. DINOv2 Extractor
         self.dino = DINOv2SpatialExtractor(dino_model_name, device=self.device)
 
-        # 2. Primary CNN Extractor (VGG16 / AlexNet)
-        if "vgg" in cnn_backbone:
-            cnn_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
-        elif "alexnet" in cnn_backbone:
+        # 2. Primary CNN Extractor (AlexNet / VGG16)
+        if "alexnet" in cnn_backbone:
             cnn_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
+        elif "vgg" in cnn_backbone:
+            cnn_layers = ["features.3", "features.8", "features.15", "features.22", "features.29"]
         else:
             cnn_layers = ["layer1", "layer2", "layer3", "layer4"]
 
@@ -276,8 +276,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
         return (self.w_global * s_global + self.w_zoom_center * s_zoom_center + self.w_zoom_tex * s_zoom_tex) / total_crop_w
 
 
-def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="vgg16",
-                             w_dino=0.50, w_primary_cnn=0.25, w_secondary_cnn=0.25,
+def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
+                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16,
                              w_global=0.60, w_zoom_center=0.25, w_zoom_tex=0.15, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
@@ -296,26 +296,26 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="v
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 + VGG16/AlexNet + Zoom-IQA)"
+    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + Zoom-IQA)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
         parser.add_argument("--dino-model", type=str, default="dinov2_vitb14",
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
-        parser.add_argument("--cnn-backbone", type=str, default="vgg16",
+        parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.50, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.25, help="Weight for CNN DISTS")
-        parser.add_argument("--w-secondary-cnn", type=float, default=0.25, help="Weight for CNN Gram SSIM")
+        parser.add_argument("--w-dino", type=float, default=0.52, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.32, help="Weight for AlexNet DISTS")
+        parser.add_argument("--w-secondary-cnn", type=float, default=0.16, help="Weight for AlexNet Gram SSIM")
         parser.add_argument("--w-global", type=float, default=0.60, help="Weight for global view")
         parser.add_argument("--w-zoom-center", type=float, default=0.25, help="Weight for center zoom crop")
         parser.add_argument("--w-zoom-tex", type=float, default=0.15, help="Weight for texture zoom crop")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom_vgg"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
-        cnn_name = getattr(args, "cnn_backbone", "vgg16")
+        cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
             "backbone": f"{dino_name}_{cnn_name}_{ms_str}",
             "feature_layer": f"fh_wd{args.w_dino}_wg{args.w_global}_{ms_str}"
