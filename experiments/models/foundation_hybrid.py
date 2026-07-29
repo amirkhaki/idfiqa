@@ -1,8 +1,9 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base (blocks [0, 3, 6, 9, 11] with spatial DISTS, Patch Cosine, CLS)
-+ AlexNet Multi-Layer Gram SSIM & DISTS (Lightweight & OOM-Safe)
-+ 2-View Zoom-IQA Native Resolution Crop Inspection.
+Combines DINOv2-Base (blocks [0, 3, 6, 9, 11] with Spatial DISTS, Patch Cosine, CLS)
++ AlexNet Multi-Layer DISTS & Gram SSIM
++ 2-View Zoom-IQA Native Resolution Crop Inspection
++ Zero-Shot Adaptive Mixture of Perceptual Experts (MoE) Gating.
 """
 import torch
 import torch.nn as nn
@@ -62,17 +63,12 @@ class IDFIQA_FoundationHybrid(nn.Module):
     1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
     2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
     3. 2-View Zoom-IQA Native Resolution Crop Inspection.
+    4. Zero-Shot Adaptive Mixture of Perceptual Experts (MoE) Gating.
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.52,
-                 w_primary_cnn=0.32,
-                 w_secondary_cnn=0.16,
-                 w_global=0.60,
-                 w_zoom_center=0.25,
-                 w_zoom_tex=0.15,
                  worst_k_ratio=0.10,
                  ws=4,
                  pf=1.0,
@@ -80,12 +76,6 @@ class IDFIQA_FoundationHybrid(nn.Module):
                  multiscale=True):
         super().__init__()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.w_dino = w_dino
-        self.w_primary_cnn = w_primary_cnn
-        self.w_secondary_cnn = w_secondary_cnn
-        self.w_global = w_global
-        self.w_zoom_center = w_zoom_center
-        self.w_zoom_tex = w_zoom_tex
         self.worst_k_ratio = worst_k_ratio
         self.ws = ws
         self.pf = pf
@@ -95,7 +85,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
         # 1. DINOv2 Extractor
         self.dino = DINOv2SpatialExtractor(dino_model_name, device=self.device)
 
-        # 2. Primary CNN Extractor (AlexNet / VGG16)
+        # 2. Primary CNN Extractor (AlexNet)
         if "alexnet" in cnn_backbone:
             cnn_layers = ["features.2", "features.5", "features.7", "features.9", "features.12"]
         elif "vgg" in cnn_backbone:
@@ -175,6 +165,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         dists_scores = []
         gram_scores = []
+        spatial_variance_list = []
 
         for k in out_r.keys():
             fr = out_r[k]
@@ -194,6 +185,12 @@ class IDFIQA_FoundationHybrid(nn.Module):
             s_var = (2 * cov + self.xi) / (vr + vd + self.xi)
             dists_map = s_mean * s_var
             dists_scores.append(dists_map.mean(dim=(1, 2, 3)))
+
+            # Track spatial non-uniformity of feature diff map
+            spatial_diff = (fr - fd).abs().mean(dim=1)
+            std_diff = torch.std(spatial_diff.view(ref.shape[0], -1), dim=1)
+            mean_diff = torch.mean(spatial_diff.view(ref.shape[0], -1), dim=1) + 1e-6
+            spatial_variance_list.append(std_diff / mean_diff)
 
             fr_sel, fd_sel = self._select_channels(fr, fd)
             if fr_sel.shape[2] >= self.ws and fr_sel.shape[3] >= self.ws:
@@ -225,15 +222,24 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         dists_score = torch.stack(dists_scores, dim=0).mean(dim=0)
         gram_score = torch.stack(gram_scores, dim=0).mean(dim=0)
-        return dists_score, gram_score
+        non_uniformity = torch.stack(spatial_variance_list, dim=0).mean(dim=0)
+
+        return dists_score, gram_score, non_uniformity
 
     @torch.no_grad()
     def _single_scale_forward(self, ref, dist):
         s_dino = self._compute_dino_score(ref, dist)
-        s_dists, s_gram = self._compute_cnn_score(ref, dist)
+        s_dists, s_gram, non_uniformity = self._compute_cnn_score(ref, dist)
 
-        total_w = self.w_dino + self.w_primary_cnn + self.w_secondary_cnn
-        return (self.w_dino * s_dino + self.w_primary_cnn * s_dists + self.w_secondary_cnn * s_gram) / total_w
+        # Zero-Shot Adaptive MoE Routing Gate based on Distortion Non-Uniformity
+        # High non-uniformity (GAN artifacts / PIPAL) -> DINOv2 Spatial Expert
+        # Low non-uniformity (Uniform noise / LIVE / CSIQ / KADID) -> Gram Matrix Expert
+        gate_dino = torch.sigmoid(4.0 * (non_uniformity - 0.70))  # Smooth soft gating
+        w_d = 0.35 + 0.30 * gate_dino            # 0.35 to 0.65
+        w_g = 0.50 - 0.30 * gate_dino            # 0.50 to 0.20
+        w_p = 0.15                             # 0.15
+
+        return (w_d * s_dino + w_g * s_gram + w_p * s_dists)
 
     @torch.no_grad()
     def forward(self, ref, dist):
@@ -272,23 +278,14 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s_zoom_tex = self._single_scale_forward(ref_tex, dist_tex)
 
         torch.cuda.empty_cache()
-        total_crop_w = self.w_global + self.w_zoom_center + self.w_zoom_tex
-        return (self.w_global * s_global + self.w_zoom_center * s_zoom_center + self.w_zoom_tex * s_zoom_tex) / total_crop_w
+        return 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
 
 
-def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16,
-                             w_global=0.60, w_zoom_center=0.25, w_zoom_tex=0.15, multiscale=True):
+def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet", multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
         device=device,
-        w_dino=w_dino,
-        w_primary_cnn=w_primary_cnn,
-        w_secondary_cnn=w_secondary_cnn,
-        w_global=w_global,
-        w_zoom_center=w_zoom_center,
-        w_zoom_tex=w_zoom_tex,
         multiscale=multiscale,
     )
 
@@ -296,7 +293,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + Zoom-IQA)"
+    description = "Training-Free Foundation Hybrid (Adaptive MoE Gating + DINOv2 + AlexNet + Zoom-IQA)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -304,21 +301,15 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.52, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.32, help="Weight for AlexNet DISTS")
-        parser.add_argument("--w-secondary-cnn", type=float, default=0.16, help="Weight for AlexNet Gram SSIM")
-        parser.add_argument("--w-global", type=float, default=0.60, help="Weight for global view")
-        parser.add_argument("--w-zoom-center", type=float, default=0.25, help="Weight for center zoom crop")
-        parser.add_argument("--w-zoom-tex", type=float, default=0.15, help="Weight for texture zoom crop")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom_moe"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
             "backbone": f"{dino_name}_{cnn_name}_{ms_str}",
-            "feature_layer": f"fh_wd{args.w_dino}_wg{args.w_global}_{ms_str}"
+            "feature_layer": f"fh_moe_{ms_str}"
         }
 
     def build_model(self, device, args):
@@ -327,11 +318,5 @@ class FoundationHybridExperiment(DefaultExperiment):
             device=device,
             dino_model=args.dino_model,
             cnn_backbone=args.cnn_backbone,
-            w_dino=args.w_dino,
-            w_primary_cnn=args.w_primary_cnn,
-            w_secondary_cnn=args.w_secondary_cnn,
-            w_global=getattr(args, "w_global", 0.60),
-            w_zoom_center=getattr(args, "w_zoom_center", 0.25),
-            w_zoom_tex=getattr(args, "w_zoom_tex", 0.15),
             multiscale=ms
         )
