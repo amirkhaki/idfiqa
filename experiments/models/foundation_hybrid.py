@@ -1,7 +1,7 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
 Combines DINOv2-Base (blocks [0, 3, 6, 9, 11]) + AlexNet Multi-Layer DISTS & Gram SSIM
-with 100% channel preservation (pf=1.0) across a 3-scale spatial pyramid.
+with Zoom-IQA Native Resolution Patch Crop Analysis (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
 """
 import torch
 import torch.nn as nn
@@ -25,7 +25,6 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        # Include block 0 for low-level structural patch details
         self.layer_indices = [0, 3, 6, 9, 11]
         self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
 
@@ -61,7 +60,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
     State-of-the-Art Training-Free Foundation Hybrid Model:
     1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS Similarity.
     2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
-    3. 3-Scale Spatial Pyramid (1.0x, 0.75x, 0.50x).
+    3. Zoom-IQA Native Resolution Crop Inspection (Global + Center Zoom + High-Texture Zoom).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
@@ -231,22 +230,44 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
     @torch.no_grad()
     def forward(self, ref, dist):
-        s1 = self._single_scale_forward(ref, dist)
+        # 1. Global View
+        s_global = self._single_scale_forward(ref, dist)
 
         if not self.multiscale:
-            return s1
+            return s_global
 
-        # 3-Scale Pyramid: 1.0x, 0.75x, 0.50x
-        ref_75 = F.interpolate(ref, scale_factor=0.75, mode="bilinear", align_corners=False)
-        dist_75 = F.interpolate(dist, scale_factor=0.75, mode="bilinear", align_corners=False)
-        s75 = self._single_scale_forward(ref_75, dist_75)
+        B, C, H, W = ref.shape
+        crop_size = int(min(H, W) * 0.70)  # ~200x200 native resolution crop
 
-        ref_50 = F.interpolate(ref, scale_factor=0.50, mode="bilinear", align_corners=False)
-        dist_50 = F.interpolate(dist, scale_factor=0.50, mode="bilinear", align_corners=False)
-        s50 = self._single_scale_forward(ref_50, dist_50)
+        # 2. Zoom-Center Native Crop
+        top_c = (H - crop_size) // 2
+        left_c = (W - crop_size) // 2
+        ref_center = ref[:, :, top_c:top_c + crop_size, left_c:left_c + crop_size]
+        dist_center = dist[:, :, top_c:top_c + crop_size, left_c:left_c + crop_size]
+        s_zoom_center = self._single_scale_forward(ref_center, dist_center)
+
+        # 3. Zoom-Texture Native Crop (Highest Variance Region)
+        # Compute 7x7 local variance on ref
+        mu_r = F.avg_pool2d(ref.mean(dim=1, keepdim=True), 7, 1, 3)
+        var_r = F.avg_pool2d(ref.mean(dim=1, keepdim=True) ** 2, 7, 1, 3) - mu_r ** 2
+        var_map = var_r.squeeze()
+
+        # Find max variance center (top, left)
+        if var_map.dim() == 2:
+            max_idx = torch.argmax(var_map)
+            h_idx, w_idx = max_idx // W, max_idx % W
+        else:
+            max_idx = torch.argmax(var_map.view(B, -1), dim=1)[0]
+            h_idx, w_idx = max_idx // W, max_idx % W
+
+        top_t = max(0, min(H - crop_size, int(h_idx) - crop_size // 2))
+        left_t = max(0, min(W - crop_size, int(w_idx) - crop_size // 2))
+        ref_tex = ref[:, :, top_t:top_t + crop_size, left_t:left_t + crop_size]
+        dist_tex = dist[:, :, top_t:top_t + crop_size, left_t:left_t + crop_size]
+        s_zoom_tex = self._single_scale_forward(ref_tex, dist_tex)
 
         torch.cuda.empty_cache()
-        return 0.50 * s1 + 0.35 * s75 + 0.15 * s50
+        return 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
@@ -265,7 +286,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 Base [0,3,6,9,11] + AlexNet 100% channels)"
+    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + Zoom-IQA Native Crops)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -279,11 +300,11 @@ class FoundationHybridExperiment(DefaultExperiment):
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "ms"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
-            "backbone": f"{dino_name}_{cnn_name}",
+            "backbone": f"{dino_name}_{cnn_name}_zoom",
             "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
