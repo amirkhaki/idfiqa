@@ -1,6 +1,6 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2-Base (blocks [0, 3, 6, 9, 11] with Top-Down Feature Pyramid Network (FPN) Semantic Fusion)
+Combines DINOv2 (ViT-Base or ViT-Large with spatial DISTS, Patch Cosine, CLS)
 + AlexNet Multi-Layer DISTS & Gram SSIM
 + 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
 """
@@ -15,7 +15,7 @@ from ..helpers import run_slug, run_config
 
 
 class DINOv2SpatialExtractor(nn.Module):
-    """Extracts 2D spatial feature maps and CLS tokens from DINOv2 with FPN Semantic Fusion."""
+    """Extracts 2D spatial feature maps and CLS tokens from DINOv2 (ViT-B or ViT-L)."""
 
     def __init__(self, model_name="dinov2_vitb14", device=None):
         super().__init__()
@@ -26,8 +26,15 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        self.layer_indices = [0, 3, 6, 9, 11]
-        self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
+        if "vitl" in model_name:
+            self.layer_indices = [0, 6, 12, 18, 23]
+            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
+        elif "vits" in model_name:
+            self.layer_indices = [0, 3, 6, 9, 11]
+            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
+        else:  # vitb14
+            self.layer_indices = [0, 3, 6, 9, 11]
+            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
 
     @torch.no_grad()
     def forward(self, x):
@@ -44,35 +51,22 @@ class DINOv2SpatialExtractor(nn.Module):
             x.to(self.device), n=self.layer_indices, return_class_token=True
         )
 
-        raw_maps = []
+        spatial_maps = []
         cls_tokens = []
 
         for patch_tokens, cls_tok in out_raw:
             C_feat = patch_tokens.shape[-1]
             feat_2d = patch_tokens.permute(0, 2, 1).view(B, C_feat, h_patches, w_patches)
-            raw_maps.append(feat_2d)
+            spatial_maps.append(feat_2d)
             cls_tokens.append(cls_tok)
 
-        # Top-Down Feature Pyramid Network (FPN) Semantic Fusion
-        fpn_maps = [None] * len(raw_maps)
-        fpn_maps[-1] = raw_maps[-1]
-
-        for i in range(len(raw_maps) - 2, -1, -1):
-            upper_feat = fpn_maps[i + 1]
-            curr_feat = raw_maps[i]
-            if upper_feat.shape[2:] != curr_feat.shape[2:]:
-                upper_upsampled = F.interpolate(upper_feat, size=curr_feat.shape[2:], mode="bilinear", align_corners=False)
-            else:
-                upper_upsampled = upper_feat
-            fpn_maps[i] = curr_feat + 0.35 * upper_upsampled
-
-        return fpn_maps, cls_tokens
+        return spatial_maps, cls_tokens
 
 
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 2D FPN-fused spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
+    1. DINOv2 (ViT-Base or ViT-Large) 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
     2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
     3. 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
     """
@@ -80,9 +74,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
     def __init__(self, dino_model_name="dinov2_vitb14",
                  cnn_backbone="alexnet",
                  device=None,
-                 w_dino=0.55,
-                 w_primary_cnn=0.30,
-                 w_secondary_cnn=0.15,
+                 w_dino=0.52,
+                 w_primary_cnn=0.32,
+                 w_secondary_cnn=0.16,
                  worst_k_ratio=0.10,
                  ws=4,
                  pf=1.0,
@@ -142,7 +136,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         weighted_layer_scores = []
         for (fr, fd, cr, cd), lw in zip(zip(maps_r, maps_d, cls_r, cls_d), self.dino.layer_weights):
-            # 1. DISTS SSIM on 2D FPN feature map
+            # 1. DISTS SSIM on 2D spatial feature map
             mr = torch.mean(fr, dim=(2, 3), keepdim=True)
             md = torch.mean(fd, dim=(2, 3), keepdim=True)
             vr = torch.var(fr, dim=(2, 3), unbiased=False, keepdim=True)
@@ -283,7 +277,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.55, w_primary_cnn=0.30, w_secondary_cnn=0.15, multiscale=True):
+                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -298,7 +292,7 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
 @register_experiment
 class FoundationHybridExperiment(DefaultExperiment):
     name = "foundation_hybrid"
-    description = "Training-Free Foundation Hybrid (DINOv2 FPN Semantic Fusion + AlexNet + Zoom-IQA)"
+    description = "Training-Free Foundation Hybrid (DINOv2 + AlexNet + Zoom-IQA)"
     summary_prefix = "foundation_hybrid"
 
     def add_arguments(self, parser):
@@ -306,17 +300,17 @@ class FoundationHybridExperiment(DefaultExperiment):
                             choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14"])
         parser.add_argument("--cnn-backbone", type=str, default="alexnet",
                             choices=["vgg16", "convnext_base", "convnext_tiny", "alexnet", "resnet50"])
-        parser.add_argument("--w-dino", type=float, default=0.55, help="Weight for DINOv2")
-        parser.add_argument("--w-primary-cnn", type=float, default=0.30, help="Weight for AlexNet DISTS")
-        parser.add_argument("--w-secondary-cnn", type=float, default=0.15, help="Weight for AlexNet Gram SSIM")
+        parser.add_argument("--w-dino", type=float, default=0.52, help="Weight for DINOv2")
+        parser.add_argument("--w-primary-cnn", type=float, default=0.32, help="Weight for AlexNet DISTS")
+        parser.add_argument("--w-secondary-cnn", type=float, default=0.16, help="Weight for AlexNet Gram SSIM")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom_fpn"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
-            "backbone": f"{dino_name}_{cnn_name}_zoom_fpn",
+            "backbone": f"{dino_name}_{cnn_name}_{ms_str}",
             "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
         }
 
