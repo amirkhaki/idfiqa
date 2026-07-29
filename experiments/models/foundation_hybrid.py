@@ -1,8 +1,8 @@
 """
 Foundation Hybrid IQA Model (Training-Free / Zero-Shot).
-Combines DINOv2 (ViT-Base or ViT-Large with spatial DISTS, Patch Cosine, CLS)
+Combines DINOv2-Base (blocks [0, 3, 6, 9, 11] with spatial DISTS, Patch Cosine, CLS)
 + AlexNet Multi-Layer DISTS & Gram SSIM
-+ 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
++ 2-View Zoom-IQA Native Resolution Crop Inspection with configurable crop weights.
 """
 import torch
 import torch.nn as nn
@@ -15,7 +15,7 @@ from ..helpers import run_slug, run_config
 
 
 class DINOv2SpatialExtractor(nn.Module):
-    """Extracts 2D spatial feature maps and CLS tokens from DINOv2 (ViT-B or ViT-L)."""
+    """Extracts 2D spatial feature maps and CLS tokens from DINOv2."""
 
     def __init__(self, model_name="dinov2_vitb14", device=None):
         super().__init__()
@@ -26,15 +26,8 @@ class DINOv2SpatialExtractor(nn.Module):
         for p in self.model.parameters():
             p.requires_grad = False
 
-        if "vitl" in model_name:
-            self.layer_indices = [0, 6, 12, 18, 23]
-            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
-        elif "vits" in model_name:
-            self.layer_indices = [0, 3, 6, 9, 11]
-            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
-        else:  # vitb14
-            self.layer_indices = [0, 3, 6, 9, 11]
-            self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
+        self.layer_indices = [0, 3, 6, 9, 11]
+        self.layer_weights = [0.25, 0.30, 0.25, 0.12, 0.08]
 
     @torch.no_grad()
     def forward(self, x):
@@ -66,9 +59,9 @@ class DINOv2SpatialExtractor(nn.Module):
 class IDFIQA_FoundationHybrid(nn.Module):
     """
     State-of-the-Art Training-Free Foundation Hybrid Model:
-    1. DINOv2 (ViT-Base or ViT-Large) 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
+    1. DINOv2 2D spatial feature DISTS SSIM + Patch Cosine + Quantile Worst-10% + CLS.
     2. AlexNet multi-layer DISTS + Gram SSIM with 100% channel preservation.
-    3. 2-View Zoom-IQA Native Resolution Crop Inspection (Global 60% + Zoom-Center 25% + Zoom-Texture 15%).
+    3. 2-View Zoom-IQA Native Resolution Crop Inspection (Configurable crop weights).
     """
 
     def __init__(self, dino_model_name="dinov2_vitb14",
@@ -77,6 +70,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
                  w_dino=0.52,
                  w_primary_cnn=0.32,
                  w_secondary_cnn=0.16,
+                 w_global=0.45,
+                 w_zoom_center=0.35,
+                 w_zoom_tex=0.20,
                  worst_k_ratio=0.10,
                  ws=4,
                  pf=1.0,
@@ -87,6 +83,9 @@ class IDFIQA_FoundationHybrid(nn.Module):
         self.w_dino = w_dino
         self.w_primary_cnn = w_primary_cnn
         self.w_secondary_cnn = w_secondary_cnn
+        self.w_global = w_global
+        self.w_zoom_center = w_zoom_center
+        self.w_zoom_tex = w_zoom_tex
         self.worst_k_ratio = worst_k_ratio
         self.ws = ws
         self.pf = pf
@@ -273,11 +272,13 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s_zoom_tex = self._single_scale_forward(ref_tex, dist_tex)
 
         torch.cuda.empty_cache()
-        return 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
+        total_crop_w = self.w_global + self.w_zoom_center + self.w_zoom_tex
+        return (self.w_global * s_global + self.w_zoom_center * s_zoom_center + self.w_zoom_tex * s_zoom_tex) / total_crop_w
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet",
-                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16, multiscale=True):
+                             w_dino=0.52, w_primary_cnn=0.32, w_secondary_cnn=0.16,
+                             w_global=0.45, w_zoom_center=0.35, w_zoom_tex=0.20, multiscale=True):
     return IDFIQA_FoundationHybrid(
         dino_model_name=dino_model,
         cnn_backbone=cnn_backbone,
@@ -285,6 +286,9 @@ def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="a
         w_dino=w_dino,
         w_primary_cnn=w_primary_cnn,
         w_secondary_cnn=w_secondary_cnn,
+        w_global=w_global,
+        w_zoom_center=w_zoom_center,
+        w_zoom_tex=w_zoom_tex,
         multiscale=multiscale,
     )
 
@@ -303,15 +307,18 @@ class FoundationHybridExperiment(DefaultExperiment):
         parser.add_argument("--w-dino", type=float, default=0.52, help="Weight for DINOv2")
         parser.add_argument("--w-primary-cnn", type=float, default=0.32, help="Weight for AlexNet DISTS")
         parser.add_argument("--w-secondary-cnn", type=float, default=0.16, help="Weight for AlexNet Gram SSIM")
+        parser.add_argument("--w-global", type=float, default=0.45, help="Weight for global view")
+        parser.add_argument("--w-zoom-center", type=float, default=0.35, help="Weight for center zoom crop")
+        parser.add_argument("--w-zoom-tex", type=float, default=0.20, help="Weight for texture zoom crop")
         parser.add_argument("--no-multiscale", action="store_true", help="Disable multi-scale pyramid")
 
     def slug_args(self, args):
-        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom"
+        ms_str = "single" if getattr(args, "no_multiscale", False) else "zoom_w"
         dino_name = getattr(args, "dino_model", "dinov2_vitb14")
         cnn_name = getattr(args, "cnn_backbone", "alexnet")
         return {
             "backbone": f"{dino_name}_{cnn_name}_{ms_str}",
-            "feature_layer": f"fh_wd{args.w_dino}_wcd{args.w_primary_cnn}_wcg{args.w_secondary_cnn}_{ms_str}"
+            "feature_layer": f"fh_wd{args.w_dino}_wg{args.w_global}_wzc{args.w_zoom_center}_{ms_str}"
         }
 
     def build_model(self, device, args):
@@ -323,5 +330,8 @@ class FoundationHybridExperiment(DefaultExperiment):
             w_dino=args.w_dino,
             w_primary_cnn=args.w_primary_cnn,
             w_secondary_cnn=args.w_secondary_cnn,
+            w_global=getattr(args, "w_global", 0.45),
+            w_zoom_center=getattr(args, "w_zoom_center", 0.35),
+            w_zoom_tex=getattr(args, "w_zoom_tex", 0.20),
             multiscale=ms
         )
