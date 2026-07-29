@@ -151,7 +151,12 @@ class IDFIQA_FoundationHybrid(nn.Module):
             worst_cos = torch.topk(cos_flat, k_val, dim=1, largest=False)[0].mean(dim=1)
             patch_cos_score = 0.50 * mean_cos + 0.50 * worst_cos
 
-            # 3. DINO Feature Gram SSIM for early layers (0, 3)
+            # 3. CLS Cosine Similarity
+            cr_norm = F.normalize(cr, p=2, dim=1)
+            cd_norm = F.normalize(cd, p=2, dim=1)
+            cls_score = (cr_norm * cd_norm).sum(dim=1)
+
+            # 4. DINO Feature Gram SSIM for early layers (0, 3)
             if idx_layer < 2:
                 gr = self._gram(fr)
                 gd = self._gram(fd)
@@ -161,11 +166,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
                 vd_g = torch.var(gd, dim=(1, 2), unbiased=False)
                 cov_g = torch.mean((gr - mr_g.unsqueeze(-1).unsqueeze(-1)) * (gd - md_g.unsqueeze(-1).unsqueeze(-1)), dim=(1, 2))
                 s_gram_dino = ((2 * mr_g * md_g + self.xi) / (mr_g ** 2 + md_g ** 2 + self.xi)) * ((2 * cov_g + self.xi) / (vr_g + vd_g + self.xi))
-                layer_score = 0.40 * dists_score + 0.40 * patch_cos_score + 0.15 * s_gram_dino + 0.05 * (cr_norm * cd_norm).sum(dim=1)
+                layer_score = 0.40 * dists_score + 0.40 * patch_cos_score + 0.15 * s_gram_dino + 0.05 * cls_score
             else:
-                cr_norm = F.normalize(cr, p=2, dim=1)
-                cd_norm = F.normalize(cd, p=2, dim=1)
-                cls_score = (cr_norm * cd_norm).sum(dim=1)
                 layer_score = 0.45 * dists_score + 0.45 * patch_cos_score + 0.10 * cls_score
 
             weighted_layer_scores.append(lw * layer_score)
