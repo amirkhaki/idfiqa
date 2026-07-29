@@ -272,8 +272,8 @@ class IDFIQA_FoundationHybrid(nn.Module):
 
         # 4. Zoom-Edge Native Crop (Highest Sobel Gradient Region)
         gray_r = ref.mean(dim=1, keepdim=True)
-        gx = F.conv2d(gray_r, self.sobel_x, padding=1)
-        gy = F.conv2d(gray_r, self.sobel_y, padding=1)
+        gx = F.conv2d(gray_r, self.sobel_x.to(ref.device), padding=1)
+        gy = F.conv2d(gray_r, self.sobel_y.to(ref.device), padding=1)
         edge_map = (gx ** 2 + gy ** 2).sqrt().squeeze()
 
         if edge_map.dim() == 2:
