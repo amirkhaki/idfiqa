@@ -1,0 +1,2439 @@
+1
+
+Image Quality Assessment: Exploring Quality
+Awareness via Memory-driven Distortion Patterns
+Matching
+
+C
+KP
+LC
+
+EP
+
+10
+ID-
+
+CSIQ SRCC
+
+C
+
+0.781
+0.8190.928
+0.950
+0.976
+
+CC
+
+0.801
+0.832
+0.929
+0.965
+0.978
+
+0.855
+0.870
+0.958
+
+IQ
+
+PL
+
+0.663
+0.665
+
+CS
+
+0.627
+0.686
+0.830
+0.874
+0.956
+
+PSNR
+SSIM
+DISTS
+DeepWSD
+MQAF-R (Ours)
+
+LC
+
+KA
+D
+
+LIV
+
+In the field of digital image processing and multimedia
+applications, image quality assessment (IQA) is a fundamental task, as it not only directly affects the end user’s
+viewing experience but also impacts subsequent processing
+and analysis workflows [1–5]. Full-reference image quality
+assessment (FR-IQA) [6–8] remains one of the most widely
+used approaches, in which the visual quality of a distorted
+image is evaluated by comparing it with a pristine reference
+image. Although traditional metrics such as mean squared
+error (MSE), mean absolute error (MAE), and peak signalto-noise ratio (PSNR) are easy to compute, they often do not
+align well with human visual perception. To bridge this gap,
+deep learning-based full-reference image quality assessment
+methods have emerged as powerful alternatives, leveraging
+pre-trained convolutional neural networks (CNNs) [9, 10] to
+extract hierarchical semantic features from both reference and
+distorted images [11–14]. Ding et al. proposed a method called
+DISTS [15], which captures structural and textural differences
+for image quality assessment. Building upon this, A-DISTS
+[16] further improves performance by adaptively modeling
+local distortions. In addition, Zhang et al. introduced LPIPS
+
+0.977
+0.962
+0.954
+0.851
+0.807
+
+0.964
+0.886
+0.883
+0.780.667
+
+CC
+
+I. I NTRODUCTION
+
+0.961
+0.954
+0.847
+0.791
+
+0.964
+0.887
+0.883
+0.778
+0.672
+
+PL
+
+Index Terms—image quality assessment, Memory-driven,
+memory bank, distance metric.
+
+LIVE0.980
+SRCC
+
+13
+20
+TID
+
+Abstract—Existing full-reference image quality assessment
+(FR-IQA) methods achieve high-precision evaluation by analysing
+feature differences between reference and distorted images.
+However, their performance is constrained by the quality of
+the reference image, which limits real-world applications where
+ideal reference sources are unavailable. Notably, the human
+visual system has the ability to accumulate visual memory,
+allowing image quality assessment on the basis of long-term
+memory storage. Inspired by this biological memory mechanism, we propose a memory-driven quality-aware framework
+(MQAF), which establishes a memory bank for storing distortion
+patterns and dynamically switches between dual-mode quality
+assessment strategies to reduce reliance on high-quality reference
+images. When reference images are available, MQAF obtains
+reference-guided quality scores by adaptively weighting reference
+information and comparing the distorted image with stored
+distortion patterns in the memory bank. When the reference
+image is absent, the framework relies on distortion patterns in
+the memory bank to infer image quality, enabling no-reference
+quality assessment (NR-IQA). The experimental results show
+that our method outperforms state-of-the-art approaches across
+multiple datasets while adapting to both no-reference and fullreference tasks.
+
+KADID-10K SRCC
+
+arXiv:2602.18000v1 [cs.CV] 20 Feb 2026
+
+Xuting Lan, Mingliang Zhou, Senior Member, IEEE, Xuekai Wei, Jielu Yan, Yueting Huang, Huayan Pu, Jun
+Luo, and Weijia Jia, Fellow, IEEE
+
+TID2013 SRCC
+
+Fig. 1. Comparison of MQAF with existing IQA methods, highlighting the
+exceptional IQA ability of MQAF-R.
+
+[17], and Liao et al. developed DeepWSD [18], both of
+which compare images in deep feature space to better reflect
+perceptual similarity. Despite their success, these methods
+fundamentally rely on the availability of high-quality reference images. In real-world scenarios, however, such reference
+images are often degraded or entirely unavailable, which
+significantly limits the practical utility of full-reference IQA
+models. When the reference image itself is slightly distorted
+or missing, the evaluation results can become unreliable or
+even misleading, undermining the theoretical advantages of
+FR-IQA. Nevertheless, we do not directly shift to no-reference
+IQA (NR-IQA) [14, 19, 20] but instead continue to explore
+within the FR-IQA framework. On the one hand, FR-IQA still
+provides stable and fine-grained supervision when reference
+images are available, which facilitates model learning. On the
+other hand, enhancing its robustness under nonideal reference
+conditions not only broadens its practical applicability but
+also lays the groundwork for building a unified framework
+compatible with NR-IQA.
+To address this limitation, we propose a memory-driven
+quality-aware framework (MQAF) that aims to reduce the
+dependence on high-quality reference images by introducing
+a learnable memory mechanism that stores distortion patterns.
+This design is inspired by findings in cognitive psychology
+[21–23]: humans often assess the quality of new stimuli by
+comparing them to previously encountered examples stored in
+
+2
+
+memory, known as standard stimuli or reference anchors. For
+example, when rating the quality of a new image, an observer
+intuitively relates it to similar images they have seen before
+and adjusts the perceived quality depending on whether the
+current distortion appears more or less severe. This reference
+process highlights the potential of explicit memory-based representations in enhancing perceptual evaluation, particularly
+in the absence of reliable reference images. Stevens’ power
+law [22] explains that the subjective perception of stimulus
+intensity follows a nonlinear function of its physical magnitude, suggesting that perceptual judgments are not based solely
+on current inputs but also shaped by internalized standards.
+Similarly, Tversky and Kahneman’s anchoring and adjustment heuristic [21] shows that people make judgments by
+adjusting from prior anchors formed from previous experience,
+especially under uncertainty. In the context of image quality
+assessment, this implies that observers rely on memory-based
+comparisons rather than absolute references. On the basis of
+this insight, MQAF constructs a memory bank that stores
+distortion patterns extracted from past examples and leverages
+them to flexibly guide image quality assessment under both
+full-reference and no-reference conditions. Unlike conventional deep models that implicitly memorize data distributions
+through network parameters, the memory bank in MQAF is an
+explicitly accessible and updatable structure, which enables the
+model to actively retrieve distortion patterns similar to the current input during inference. This mechanism not only enhances
+the model’s adaptability to previously unseen distortion types
+but also improves interpretability of the assessment process,
+overcoming the generalization limitations inherent in purely
+data-driven approaches.
+We propose a novel memory-driven quality-aware assessment framework (MQAF) that constructs a trainable
+memory bank composed of memory units to achieve
+autonomous learning and storage of typical distortion
+pattern features. This memory bank is able to continuously update and store new distortion types while
+maintaining long-term memory and precise recognition
+of key distortion patterns. This fundamentally overcomes
+the traditional method’s dependence on high-quality reference images and provides a novel solution to the problem
+of obtaining reference images in practical applications.
+• The MQAF framework we designed exhibits excellent
+versatility and flexibility and is capable of adapting
+to both reference and no-reference scenarios. When a
+reference image is available, MQAF can combine the
+reference information with distortion patterns in the memory bank for comprehensive adaptive evaluation, thereby
+improving the accuracy of quality prediction. When the
+reference image is unavailable, MQAF can rely fully on
+the distortion patterns in the memory bank for quality
+scoring, enabling NR-IQA. This dual-mode operation
+mechanism allows MQAF to function effectively in various real-world applications, expanding the scope of image
+quality assessment.
+• The experimental results demonstrate that our method
+outperforms existing state-of-the-art methods across mul-
+
+•
+
+tiple public datasets and evaluation metrics. Particularly
+in no-reference scenarios or when the reference image
+quality is low, MQAF maintains a stable performance
+advantage, showing exceptional robustness and broad
+application potential. These experimental results not only
+validate the effectiveness of the memory mechanism in
+image quality assessment but also provide new research
+directions for the development of future image quality
+assessment technologies.
+The structure of this paper is as follows. In section II,
+we review the existing work related to IQA methods. In
+section III, we describe the problem formulation of IQA. In
+section IV, we provide a detailed description of the proposed
+MQAF method. In section V, we present the experimental
+setup and analyse the results. Finally, the section VI concludes
+the paper.
+II. R ELATED W ORK
+A. Image Quality Assessment
+In the field of IQA, various classical FR metrics have been
+developed to simulate HVS perception of image distortions.
+Among them, Wang et al. proposed the structural similarity
+index (SSIM) [24], which calculates image similarity on
+the basis of luminance, contrast, and structural information,
+serving as the foundation for many subsequent methods. They
+later introduced the multi-scale SSIM (MS-SSIM) [25], which
+evaluates image quality across multiple scales. Wu et al. [26]
+proposed the visual information fidelity (VIF) index from
+an information-theoretic perspective, leveraging natural scene
+statistics to measure the amount of visual information retained
+in distorted images. Larson et al. [27] introduced the most
+apparent distortion (MAD) model, which combines assessments of both subtle and obvious distortions for a consistent
+evaluation. Zhang et al. [28] proposed the feature similarity
+index (FSIM), which focuses on perceptual features via phase
+congruency and gradient magnitude. They further introduced
+the visual saliency-induced index (VSI) [29], emphasizing the
+influence of visually salient regions on quality assessment.
+These methods involve advanced image quality evaluation,
+providing multidimensional analytical tools for image processing and compression.
+B. Deep feature-based image quality assessment
+In recent years, deep learning methods have been extensively applied to FR-IQA, achieving breakthroughs in perceptual assessment through distance-based feature similarity
+metrics. Wang et al. [30] pioneered the use of KullbackLeibler divergence (KLD) to measure histogram similarity
+for reduced-reference IQA (RR-IQA), effectively quantifying
+distortion levels by capturing distribution differences between
+probability distributions and simulating the sensitivity of HVS
+to image information changes. Compared with KLD, Liu
+et al. [31] introduced Jensen–Shannon divergence (JSD) to
+address contrast distortion evaluation, demonstrating superior
+robustness in handling significant distribution disparities and
+resolving asymmetry issues. With advancements in deep learning, Zhang et al. [17] proposed the LPIPS metric, which
+
+3
+
+leverages deep neural networks (DNNs) to extract image
+features and predict quality scores through feature distribution
+comparisons. Delbracio et al. [32] expanded distribution-based
+metrics by projecting image features into high-dimensional
+spaces and utilizing Wasserstein distance (WSD) to quantify distribution discrepancies between enhanced and target
+images. Building on this, Liao et al. [18] integrated WSD
+into FR-IQA frameworks, achieving robust quality prediction
+by matching distributions in deep feature spaces. To further
+advance the field, Liao et al. [6] developed a training-free
+FR-IQA framework incorporating multiple perceptual distance
+metrics (JSD, WSD, KLD) to compare deep feature distributions, demonstrating the broad applicability of distributionbased metrics in IQA tasks. In addition, some no-reference
+image quality assessment (NR-IQA) methods [33–35] generate pseudoreference images by restoring distorted images as
+auxiliary information, thereby quantifying quality differences.
+These frameworks provide flexible solutions that can adapt to
+various distortion types and scenarios, significantly advancing
+the development of IQA methods.
+These methods rely heavily on high-quality reference images as evaluation benchmarks, with their core idea being
+to quantify image quality by computing feature differences
+between the reference and distorted images. However, in
+practical applications, high-quality reference images are often
+difficult to obtain, especially in scenarios such as image transmission, storage degradation, or content enhancement, where
+the reference image may be missing or already degraded.
+This leads to complete failure or weakened effectiveness
+of the assessment, significantly limiting the applicability of
+traditional FR-IQA methods. Therefore, a key challenge for
+current FR-IQA methods is how to reduce the dependence on
+reference images while still achieving accurate IQA.
+
+a memory bank to store and learn different types of distortion
+patterns, thereby enhancing quality awareness. The memory
+storage and retrieval process is formulated as:
+Mω (ϕθ (Idist ), Dk )
+
+(2)
+
+where Mω (·) represents the memory storage and retrieval
+mechanism, ω is the parameter controlling memory storage
+and updating, and Dk denotes the k-th distortion pattern stored
+in the memory bank. Through this mechanism, the model
+can dynamically switch between different quality assessment
+modes, enabling effective evaluation in both full-reference
+(FR) and no-reference (NR) scenarios. This reduces reliance
+on reference images and enhances the robustness of the
+assessment process.
+Based on the established memory mechanism, we employ
+an end-to-end learning approach to minimize the loss function
+l(·) over the entire dataset, ensuring that the predicted quality
+score Q closely approximates the ground truth quality score
+Qtrue . Our optimization objective is defined as follows:
+min E[l(Disζ (ϕθ (Iref ), ϕθ (Idist ) + Mω (ϕθ (Iref ))), Qtrue )]
+
+θ,ζ,ω
+
+(3)
+where θ is optimized to refine the feature extractor ϕθ (·), ensuring effective representation of image quality; ζ is optimized
+to enhance the distortion metric Disζ (·, ·), which quantifies
+quality differences between images; and ω is trained to improve the memory module Mω (·), enabling efficient storage
+and retrieval of learned distortion patterns. The memory bank
+Mω (·) not only continuously stores and updates distortion
+types but also maintains the independence of different distortion patterns. This prevents redundant interference, reinforces
+long-term memory for various distortions, and ultimately allows the model to assess image quality effectively even in the
+absence of a reference image.
+
+III. P ROBLEM F ORMULATION
+Traditional FR-IQA methods typically rely on a pristine reference image as a benchmark, with the optimization objective
+formulated as:
+
+
+min E l Disζ (ϕθ (Iref ), ϕθ (Idist )), Qtrue
+(1)
+θ,ζ
+where Iref and Idist denote the reference and distorted images,
+respectively, ϕθ (·) is a feature extraction function parameterized by θ. Disζ (·, ·) represents a distance metric controlled
+by the parameter ζ, and Qtrue denotes the ground truth score.
+However, this approach heavily depends on an undistorted reference image, which may be unavailable or incomplete in realworld applications. This limitation reduces the applicability of
+traditional full-reference methods, affecting the stability and
+generalization capability of quality assessment. In contrast,
+humans can perceive image quality even in the absence of
+a reference image by relying on prior visual experiences. This
+capability arises from the continuous storage and accumulation of various distortion patterns in the human brain over
+time, utilizing an internal memory system to retrieve, update,
+and compare these patterns for quality evaluation. Inspired
+by this memory mechanism, we propose a memory-driven
+quality-aware assessment framework (MQAF), which builds
+
+IV. M ETHODOLOGY
+A. Framework
+To address the overreliance on high-quality reference images in IQA, we propose a memory-driven quality-aware
+assessment framework (MQAF), as shown in Figure 2. The
+core of this framework is a trainable memory bank composed
+of memory units, which stores and extracts typical distortion
+pattern features. The memory bank not only retains longterm memories of key distortion patterns but also adapts to
+new distortion types, thus overcoming the dependence on
+high-quality reference images found in traditional methods.
+Initially, deep features of both reference and distorted images
+are extracted via a deep network and serve as the foundation
+for distortion pattern matching on the basis of the memory
+mechanism. Specifically, we use a ResNet50 pretrained model
+as the encoder, with reference and distorted images Iref , Idist ∈
+RN ×H×W ×3 , where N is the sample size; H and W are the
+image height and width, respectively; and 3 represents the
+RGB channels. We extract high-level features from the final
+layer, followed by normalization and global average pooling to
+obtain the reference and distorted features Fref , Fdist ∈ R2048 .
+In the quality assessment phase, the framework adjusts the
+
+4
+
+(a) Overall structure of MQAF
+Deep domain
+
+Data input
+
+Quality-aware assessment
+
+Deep Networks
+
+Reference
+Matching
+
+Q
+...
+
+Memory
+Matching
+Reference deep features
+
+Reference mode
+
+Reference Dataset
+Deep Networks
+
+Memory Bank
+Memory
+Matching
+
+...
+Distorted deep features
+
+Distorted Dataset
+
+Hl Wl Cl
+Reference mode
+
+Fref
+
+Norm
+
+Q
+...
+
+3
+2
+
+Fref
+
+
+
+1
+
+Sref
+
+Sdist
+
+0
+-1
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+Conv
+
+Distorted
+features
+
+Hl Wl Cl
+...
+
+Q
+
+...
+
+...
+
+Distorted features
+
+Fdist
+
+Cosine
+similarity
+
+...
+
+Avgpool
+
+...
+
+No reference mode
+
+Memory units V
+
+Memory Bank
+
+-1
+
+Avgpool & Norm
+
+Fdist
+
+4
+
+Hl Wl Cl
+
+Memory Matching Degree
+
+Fdist
+
+Cosine
+similarity
+5
+
+Reference features
+
+No reference mode
+
+(b) Memory Matching
+
+(a) Reference Matching
+
+Avgpool
+
+Q
+
+Fig. 2. The framework (MQAF) of our proposed method can adaptively select different modes based on the availability of reference images in the quality
+assessment process. When a reference image is available, the framework enters the reference mode, where the final quality score Q is obtained by computing
+reference matching and memory matching. When no reference image is available, the framework switches to the no-reference mode, where the final quality
+score Q is determined by matching with distortion patterns (memory units V) stored in the memory bank.
+
+evaluation mode on the basis of the availability of the reference
+image.
+
+B. Memory-driven Distortion Pattern Storage and Matching
+Metric
+
+When the reference image is available, the MQAF first
+measures the reference matching score between Fref and Fdist .
+Then, Fdist are matched with the distortion patterns stored
+in the memory bank to obtain the memory matching score.
+Finally, the final quality score is obtained through adaptive
+weighting. When the reference image is unavailable, the
+MQAF completely relies on the distortion patterns in the memory bank for quality assessment, calculating the final quality
+score by matching the high-level features of the distorted
+image with the stored distortion patterns. During the training
+process, the memory loss continuously optimizes the distortion
+patterns stored in the memory bank, enabling the model to
+effectively learn and memorize different types of distortions,
+improving its adaptability to unknown distortion types. This
+ensures that the model can achieve robust quality assessment
+regardless of the availability of reference images.
+
+In human visual perception, the brain continuously stores
+and updates information in response to new stimuli, thereby
+forming memory. Inspired by this biological mechanism,
+we propose a memory-driven quality assessment framework
+(MQAF) that simulates the processes of memory storage
+and updating (during training) and memory retrieval (during
+inference) to increase the adaptability and accuracy of IQA
+under varying reference conditions. To this end, we construct
+a trainable memory bank composed of multiple memory units,
+which is progressively optimized during training to learn
+prototypical representations of various distortion types. Each
+memory unit, as a fundamental component of the memory
+bank, represents a prototype of a distortion pattern, that is, the
+characteristic feature distribution exhibited by images under
+different types of degradation. Specifically, the memory bank
+is defined as V ∈ R256×2048 , where 256 memory units are
+stored, each represented by a 2048-dimensional feature vector.
+
+5
+
+MQAF dynamically switches its evaluation strategy on the
+basis of the availability of reference images, enabling more
+flexible and accurate quality prediction. The quality score Q
+is calculated as follows:
+Q = αSref + (1 − α)Sdist
+
+(4)
+
+where Sref denotes the reference matching score. Sdist represents the memory matching score. α is a learnable weight
+parameter within the range [0,1] used to balance the contributions of the reference matching score and the memory
+matching score.
+When the reference image is available, the quality score Q is
+obtained through adaptive weighting of the reference matching
+score Sref and the memory matching score Sdist . First, on the
+basis of the reference features Fref and distorted features Fdist ,
+we compute the matching score via the cosine similarity Scos
+and norm-based similarity Snorm , to obtain the final reference
+matching score Sref . Using only cosine similarity ignores the
+magnitude information of the features, as it focuses solely
+on the angle between feature vectors while neglecting their
+length (magnitude). In practice, two images may have features
+pointing in similar directions (i.e., high cosine similarity) but
+differ significantly in magnitude, which may indicate severe
+distortion in perceptual quality. Therefore, by combining both
+directional and magnitude information, the matching between
+the reference and distorted images in the feature space can be
+assessed more comprehensively.
+Sref = Distance(Fref , Fdist ) = Scos · Snorm
+
+Fref · Fdist
+
+
+ Scos = ∥F ∥ · ∥F ∥ ,
+ref 2
+dist 2
+|∥F
+∥
+
+ref
+2 − ∥Fdist ∥2 |
+
+Snorm = 1 −
+max(∥Fref ∥2 , ∥Fdist ∥2 )
+
+(5)
+
+Next, the memory matching score Sdist between the distorted
+image and the distortion patterns stored in the memory bank
+is computed. Specifically, the distortion features Fdist are
+matched with all distortion patterns in the memory bank
+through a convolutional projection, obtaining local distortion
+pattern matching results. Then, global average pooling is applied to aggregate the full-image matching results, producing
+a global matching feature vector. The L2 norm of this vector is
+computed to measure the overall matching degree between the
+input distorted image and the stored distortion patterns. The
+final memory matching score Sdist is calculated as follows:
+
+
+
+V
+Fdist
+Sdist = Pool Conv
+,
+(6)
+∥Fdist ∥ ∥V∥
+where Conv(·, ·) denotes the matching operation using the
+memory bank as the convolutional kernel, Pool(·) refers to
+global average pooling, and ∥ · ∥ represents L2 normalization.
+Specifically, ∥ · ∥ computes the L2 norm of the feature vector,
+which measures the matching degree between the distorted image and the stored patterns. Finally, we dynamically compute
+the weights α of the reference and memory matching scores
+via a simple adaptive weight network (AWN). To guide the
+learning of α, we supervise it with an error-based confidence
+
+loss.
+Lα = (α − αtarget )2
+
+
+
+(7)
+
+α = AWN (concat (Pool (Fdist ) , Pool (Fref ))) ,
+true
+
+αtarget =
+
+e|Sdist −Q |
+true |
+|S
+−Q
+dist
+e
++ e|Sref −Qtrue |
+
+(8)
+
+where concat(·) denotes the concatenation operation, αtarget
+denotes the target weight, and Lα reflects the error ratio of
+the two scores Sref and Sdist relative to the ground truth label
+Qtrue , thereby adaptively adjusting the confidence in different
+scores. Specifically, if the memory-based score Sdist is closer
+to the ground truth, αtarget will be larger, indicating higher
+confidence in the memory score; otherwise, the model places
+more trust in the reference score Sref . Additionally, when the
+reference image is unavailable, the model relies solely on the
+memory matching score for quality assessment. Owing to the
+absence of a reference, the weighting parameter α = 0 in
+Equation (4) becomes inactive, and the model fully depends
+on the memory bank for evaluation. This ensures accurate
+image quality prediction under no-reference conditions. The
+final quality score is given by Q = Sdist .
+During the training phase, to reduce the redundancy between
+the model’s memory units and encourage it to learn more
+independent feature representations, we use a memory loss
+based on decorrelation constraints to optimize and update the
+memory bank, expressed as:
+!
+Xq
+2
+Cii + ϵ
+Lmemory = λ ∥C∥F −
+(9)
+i
+
+where λ is a hyperparameter and C is the covariance matrix of
+the features, which represents the correlation between different
+feature dimensions. ∥C∥F denotes the Frobenius norm of the
+covariance matrix, which measures its overall magnitude. ϵ
+is a small constant to prevent division by zero. Cii refers to
+the diagonal elements of the covariance matrix, indicating the
+variance of each feature. By minimizing the decorrelation loss,
+the correlation between different memory units is reduced,
+allowing each unit to focus on learning distinct distortion
+patterns. This enhances the model’s ability to differentiate
+various distortion types, enabling diversified learning among
+memory units. As a result, the model achieves more precise
+recognition and distinction of different distortion types, improving the overall effectiveness of the quality assessment
+framework. Finally, in Equation (3), we use the mean squared
+error (MSE) as the quality regression loss function Lpre and
+optimize it jointly with the memory loss Lmemory and errorbased confidence loss Lα within our proposed framework
+(MQAF). The overall loss function Ltotal is defined as follows:
+Ltotal = Lpre + λ · Lmemory + Lα
+
+(10)
+
+Specifically, Lα only updates the parameters of AWN; therefore, no weighting coefficient is needed here.
+C. Connection to the HVS and existing methods
+Existing FR-IQA methods [6, 17, 18] predict quality scores
+by calculating the feature distance between the reference and
+distorted images to enhance perceptual consistency. However,
+
+6
+
+TABLE I
+D ETAILED INFORMATION OF THE IMAGE QUALITY ASSESSMENT DATABASES .
+
+Dataset
+
+LIVE [36]
+
+CSIQ [27]
+
+TID2013 [37]
+
+KADID-10K [38]
+
+PIPAL [39]
+
+Reference images
+Distorted images
+Distortion types
+Image resolution
+MOS range
+
+29
+779
+5
+[0, 100]
+
+30
+866
+6
+512 × 512
+[0, 1]
+
+25
+3,000
+24
+512 × 384
+[0, 9]
+
+81
+10,125
+25
+512 × 384
+[1, 5]
+
+250
+25,850
+40
+288 × 288
+[868, 1857]
+
+TABLE II
+P ERFORMANCE COMPARISON OF THE PROPOSED MQAF ALGORITHM AGAINST STATE - OF - THE - ART FR-IQA AND NR-IQA ALGORITHMS ON
+BENCHMARK DATASETS . T HE BEST, SECOND , AND THIRD RESULTS ARE BOLDED AND HIGHLIGHTED IN red, green, AND blue, RESPECTIVELY.
+A DDITIONALLY, MQAF-R PRESENTS THE PERFORMANCE OF OUR METHOD IN REFERENCE MODE , WHILE MQAF-NR SHOWS ITS PERFORMANCE IN
+NO - REFERENCE MODE .
+
+Type
+
+Method
+
+LIVE [36]
+
+CSIQ [27]
+
+TID2013 [37]
+
+KADID-10K [38]
+
+PLCC
+
+SRCC
+
+PLCC
+
+SRCC
+
+PLCC
+
+SRCC
+
+PLCC
+
+SRCC
+
+FR
+
+PSNR
+SSIM [24]
+MS-SSIM [25]
+VIF [26]
+MAD [27]
+FSIM [28]
+VSI [29]
+GMSD [40]
+NLPD [41]
+WaDIQaM-FR [20]
+DeepQA [42]
+PieAPP [43]
+DeepFL-IQA [44]
+JND-SalCAR [45]
+LPIPS-VGG [17]
+DISTS [15]
+A-DISTS [16]
+DeepWSD [18]
+TOPIQ-FR [14]
+MQAF-R (ResNet50)
+MQAF-R (VGG16)
+
+0.791
+0.847
+0.886
+0.948
+0.904
+0.910
+0.877
+0.909
+0.882
+0.980
+0.982
+0.986
+0.978
+0.987
+0.978
+0.954
+0.955
+0.961
+0.984
+0.982
+0.988
+
+0.807
+0.851
+0.903
+0.952
+0.907
+0.920
+0.899
+0.910
+0.889
+0.970
+0.981
+0.977
+0.972
+0.984
+0.972
+0.954
+0.955
+0.962
+0.984
+0.980
+0.983
+
+0.781
+0.819
+0.864
+0.898
+0.934
+0.902
+0.912
+0.938
+0.913
+0.967
+0.965
+0.975
+0.946
+0.977
+0.970
+0.928
+0.947
+0.950
+0.980
+0.977
+0.978
+
+0.801
+0.832
+0.879
+0.899
+0.932
+0.915
+0.928
+0.939
+0.925
+0.962
+0.961
+0.973
+0.930
+0.976
+0.967
+0.929
+0.941
+0.965
+0.978
+0.979
+0.978
+
+0.663
+0.665
+0.785
+0.771
+0.803
+0.876
+0.898
+0.858
+0.832
+0.946
+0.947
+0.946
+0.876
+0.956
+0.944
+0.855
+0.858
+0.870
+0.958
+0.964
+0.965
+
+0.686
+0.627
+0.729
+0.677
+0.773
+0.851
+0.894
+0.804
+0.799
+0.940
+0.939
+0.945
+0.858
+0.949
+0.936
+0.830
+0.835
+0.874
+0.954
+0.966
+0.964
+
+0.667
+0.780
+0.835
+0.676
+0.829
+0.850
+0.875
+0.847
+0.819
+0.935
+0.910
+0.832
+0.938
+0.960
+0.886
+0.892
+0.883
+0.964
+0.966
+
+0.672
+0.778
+0.834
+0.669
+0.827
+0.850
+0.876
+0.846
+0.820
+0.931
+0.912
+0.830
+0.936
+0.959
+0.887
+0.892
+0.883
+0.963
+0.965
+
+NR
+
+WaDIQaM-NR [20]
+DBCNN [19]
+TIQA [46]
+MetaIQA [47]
+SS-IQA [48]
+BIQA, M.D [49]
+KGANet [50]
+QAL-IQA [51]
+MQAF-NR (ResNet50)
+MQAF-NR (VGG16)
+
+0.955
+0.971
+0.965
+0.959
+0.980
+0.978
+0.966
+0.973
+0.984
+0.987
+
+0.960
+0.968
+0.949
+0.960
+0.978
+0.969
+0.963
+0.971
+0.980
+0.980
+
+0.844
+0.959
+0.838
+0.908
+0.969
+0.925
+0.963
+0.970
+0.971
+0.969
+
+0.852
+0.946
+0.825
+0.899
+0.960
+0.903
+0.954
+0.963
+0.972
+0.971
+
+0.855
+0.865
+0.858
+0.868
+0.910
+0.859
+0.933
+0.963
+0.953
+
+0.835
+0.816
+0.846
+0.856
+0.891
+0.835
+0.927
+0.960
+0.951
+
+0.752
+0.856
+0.855
+0.775
+0.895
+0.943
+0.910
+0.962
+0.958
+
+0.739
+0.851
+0.85
+0.762
+0.896
+0.940
+0.908
+0.958
+0.956
+
+their evaluation performance heavily relies on high-quality
+reference images as benchmarks. When reference images
+suffer from quality defects or are unavailable, distance-based
+measurement mechanisms fail, leading to evaluation bias. NRIQA methods [33–35] attempt to generate pseudoreference
+images through image restoration for guiding evaluation, but
+their performance is limited by the accuracy and completeness
+of image reconstruction algorithms. In contrast, the memorydriven quality-aware assessment framework (MQAF) proposed
+
+in this paper innovatively builds a memory bank that stores
+various distortion patterns. It achieves quality assessment by
+matching the distorted image with prestored distortion pattern
+memory units in the bank and switches evaluation modes on
+the basis of the availability of reference images to reduce
+dependency. The MQAF we propose simulates the memorydriven mechanism of the human brain for visual information,
+not only breaking through the rigid dependency on reference
+images in traditional methods but also offering potential for
+
+7
+
+extending its memory-driven architecture to broader quality
+assessment tasks.
+V. E XPERIMENTS
+
+TABLE III
+SRCC RESULTS OF MQAF-R ON THE PIPAL DATASET. T HE BEST
+RESULTS ARE SHOWN IN BOLD .
+
+PIPAL Validation [39]
+PLCC
+SRCC
+0.289
+0.255
+0.409
+0.363
+0.566
+0.491
+0.562
+0.468
+0.515
+0.450
+0.572
+0.503
+0.558
+0.370
+0.656
+0.585
+0.702
+0.649
+0.696
+0.704
+0.606
+0.569
+0.611
+0.551
+0.634
+0.608
+0.763
+0.776
+
+Methods
+
+A. Experimental setups
+1) Databases: We evaluated the performance of our proposed method via five publicly available datasets, including
+the LIVE [36], CSIQ [27], TID2013 [37], KADID-10k [38],
+and PIPAL [39] datasets. These datasets vary significantly in
+terms of size, distortion type, and subjective score annotations,
+as summarized in Table I.
+2) Evaluation metrics: For evaluation metrics, we selected
+the Spearman rank order correlation coefficient (SRCC) [52]
+and the Pearson linear correlation coefficient (PLCC) [53] to
+compare the performance of our proposed memory-driven and
+dynamic quality-aware assessment framework (MQAF) with
+that of other FR-IQA methods. The SRCC and PLCC can be
+formulated as follows:
+Pn
+i=1 (Xi − X̄)(Si − S̄)
+qP
+(11)
+P LCC = qP
+n
+n
+2
+2
+i=1 (Xi − X̄)
+i=1 (Si − S̄)
+where X and S denote the subjective and objective qualities,
+respectively, and
+Pn
+6 i=1 d2i
+SRCC = 1 −
+(12)
+n (n2 − 1)
+where n is the total number of samples and where di indicates
+the rank difference between the subjective and predicted scores
+for the i-th sample.
+3) Implementation details: All experiments in this study
+were conducted via the PyTorch framework on an NVIDIA
+GeForce RTX 4090 GPU. During the image preprocessing
+stage, all the input images were randomly cropped to a size of
+224×224×3 before being fed into the MQAF model. During
+training, the main hyperparameters were configured as follows:
+the learning rate was set to 8 × 10−5 , the weight decay was
+1 × 10−5 , the batch size was 16, and the total number of
+training epochs was 200. The Adam optimizer was employed
+to ensure efficient and stable parameter updates.
+B. Experimental Results
+1) Comparison with the State-of-the-Art Method: In our
+study, to comprehensively evaluate the effectiveness of the
+proposed MQAF framework, we conducted performance comparisons against various classic 27 IQA methods on standard
+datasets. These FR-IQA methods include PSNR, SSIM [24],
+MS-SSIM [25], VSI [29], VIF [26], FSIM [28], GMSD [40],
+NLPD [41], WaDIQaM-FR [20], PieAPP [43], MAD [27],
+DISTS [15], A-DISTS [16], DeepWSD [18], DeepQA [42],
+DeepFL-IQA [44], JND-SalCAR [45], LPIPS-VGG [17], and
+TOPIQ [14]. Additionally, we included popular NR-IQA methods, including WaDIQaM-NR [54], DBCNN [19], MetaIQA
+[47], TIQA [46], BIQA, M.D [49], SS-IQA [48], KGANet
+[50], and QAL-IQA [51].
+Table II compares the performance of the proposed MQAF
+method with that of state-of-the-art full-reference (FR-IQA)
+
+PSNR
+SSIM [24]
+MS-SSIM [25]
+FSIM [28]
+VSI [29]
+VIF [26]
+NLPD [41]
+GMSD [40]
+MAD [55]
+PieAPP [43]
+LPIPS-Alex [17]
+LPIPS-VGG [17]
+DISTS [15]
+MQAF-R (Ours)
+
+TABLE IV
+C OMPARISON OF CROSS - DATASET PERFORMANCE ON KADID-10K [38]
+DATASET. T HE BEST RESULTS ARE HIGHLIGHTED IN BOLD .
+
+Training Set: KADID-10K
+Method
+
+LIVE
+
+CSIQ
+
+TID2013
+
+PLCC SRCC PLCC SRCC PLCC SRCC
+PSNR
+0.872 0.0.876 0.796
+WaDIQaM-FR [20] 0.837 0.883
+RADN [56]
+0.878 0.905
+PieAPP [43]
+0.910 0.918 0.890
+LPIPS-Alex [17]
+0.900 0.922 0.893
+MQAF-R (Ours)
+0.913 0.941 0.903
+
+0.806
+0.897
+0.928
+0.910
+
+0.702
+0.741
+0.796
+0.831
+0.787
+0.845
+
+0.639
+0.698
+0.747
+0.844
+0.776
+0.847
+
+and no-reference (NR-IQA) image quality assessment approaches across four public datasets. In particular, we evaluate MQAF under two operational modes. In the reference
+mode (MQAF-R), the model performs quality prediction by
+incorporating both the reference image and a memory matching mechanism. In the no-reference mode (MQAF-NR), the
+model relies entirely on internal memory to assess image
+quality. The bold entries in Table II highlight the results for
+these two modes. The experimental results demonstrate that
+MQAF consistently delivers strong performance regardless
+of the availability of a reference image. On the KADID10K dataset, it achieves the best results and significantly
+outperforms existing methods. In the reference mode, MQAF
+attains a PLCC score on the CSIQ dataset that is only
+0.002 lower than the best result achieved by TOPIQ-FR [14],
+indicating a minimal gap. Notably, under the no-reference
+setting, MQAF still achieves high PLCC and SRCC scores,
+surpassing existing mainstream NR-IQA methods. This further
+confirms the effectiveness and robustness of the proposed
+memory mechanism in no-reference scenarios. Additionally,
+we compare the performance of MQAF under both modes
+
+8
+
+TABLE V
+SROCC RESULTS FOR INDIVIDUAL DISTORTION TYPES ON THE LIVE[36] AND CSIQ [27] DATABASES . T HE BEST RESULT IS SHOWN IN BOLD AND
+THE SECOND - BEST RESULT IS UNDERLINED .
+
+LIVE
+
+Method
+PSNR
+SSIM [24]
+VIF [26]
+GSMD [40]
+FSIMc [28]
+IFC [57]
+DeepQA [42]
+DRF-IQA [58]
+MQAF-R (Ours)
+
+CSIQ
+
+JP2K
+
+JPEG
+
+WN
+
+GB
+
+FF
+
+WN
+
+JPEG
+
+JP2K
+
+PN
+
+GB
+
+CC
+
+0.895
+0.961
+0.969
+0.968
+0.972
+0.910
+0.972
+0.978
+0.968
+
+0.881
+0.972
+0.984
+0.973
+0.979
+0.944
+0.980
+0.982
+0.970
+
+0.985
+0.969
+0.985
+0.974
+0.971
+0.937
+0.986
+0.988
+0.987
+
+0.782
+0.952
+0.972
+0.957
+0.968
+0.965
+0.982
+0.982
+0.980
+
+0.891
+0.956
+0.965
+0.942
+0.950
+0.964
+0.963
+0.967
+0.975
+
+0.963
+0.897
+0.958
+0.944
+0.936
+0.846
+0.904
+0.910
+0.983
+
+0.888
+0.956
+0.971
+0.963
+0.966
+0.940
+0.948
+0.961
+0.972
+
+0.936
+0.961
+0.967
+0.965
+0.970
+0.926
+0.972
+0.968
+0.983
+
+0.934
+0.892
+0.951
+0.939
+0.937
+0.828
+0.930
+0.942
+0.972
+
+0.929
+0.961
+0.975
+0.959
+0.973
+0.959
+0.970
+0.972
+0.987
+
+0.862
+0.792
+0.935
+0.935
+0.944
+0.542
+0.956
+0.963
+0.950
+
+when it is combined with different backbone networks. The
+results show that, whether in MQAF-R or MQAF-NR mode,
+the use of VGG16 or RseNet50 as the backbone leads to
+optimal or near-optimal performance across all datasets. This
+finding further confirms the advantages and versatility of our
+memory-based design in IQA tasks.
+In addition, we further evaluated the proposed MQAF
+method on the large-scale PIPAL [39] dataset, which contains
+40 types of complex distortions, and compared it with several
+state-of-the-art FR-IQA methods. The experiments were conducted strictly on the basis of the official training and validation split provided by the PIPAL dataset to ensure fairness and
+reproducibility. The results are shown in Table III. It can be
+observed that MQAF demonstrates stable performance under
+various distortion conditions and outperforms mainstream FRIQA methods in overall metrics, further validating the effectiveness and superiority of the proposed method in complex
+and realistic scenarios.
+2) Performance Evaluation Cross Different Databases:
+To evaluate the generalization ability of our method on
+the reference-based (MQAF-R) dataset, we conducted crossdatabase experiments without any fine-tuning or parameter
+adaptation. The model was trained on the KADID-10K dataset
+and tested on the LIVE, CSIQ, and TID2013 datasets. Table
+IV presents the comparison results between our method and
+representative approaches, including PSNR, WaDIQaM-FR
+[20], RADN [56], PieAPP [43], and LPIPS-Alex [17]. The
+experimental results show that our method achieves superior performance when LIVE and TID2013 are used as test
+datasets. Although the SRCC metric on the CSIQ dataset
+does not reach the highest score, our method still maintains a
+leading performance in terms of PLCC, further demonstrating
+the strong generalization ability and robustness of MQAF-R
+in handling complex distortions.
+3) Performance Evaluation on Individual Distortion Types:
+To evaluate the performance of the proposed method on
+individual distortion types, we conducted experiments on
+seven types of distortions from the LIVE and CSIQ datasets,
+including JPEG2000 compression (JP2K), JPEG compression
+(JPEG), white noise (WN), Gaussian blur (GBLUR), fast fading distortion (FF), Poisson noise (PN), and contrast distortion
+
+(CC). The experimental results are shown in Table V. As
+illustrated in the results, our method demonstrates superior
+performance across most distortion types, with particularly
+strong results on the CSIQ dataset. For the LIVE dataset, even
+in cases where our method did not achieve the best score, it
+consistently ranked among the top two methods, indicating its
+robustness and adaptability across diverse distortion scenarios.
+4) Performance Comparison of Cross Distortion Types:
+To further evaluate the generalization ability of the proposed model across different distortion types, we conducted
+experiments via the leave-one-distortion-out cross-validation
+(LODO-CV) strategy. Specifically, on the basis of the 24
+distortion types in the TID2013 dataset, in each iteration, one
+distortion type was held out as the test set, while the remaining
+23 types were used for training. This process was repeated
+24 times to ensure that each distortion type was evaluated
+individually, allowing for a comprehensive assessment of the
+model’s ability to handle previously unseen distortions. Table
+VI presents the performance of our proposed model under
+both the no-reference mode (MQAF-NR) and the reference
+mode (MQAF-R), with each distortion type used as the test set.
+The results demonstrate that MQAF-NR outperforms existing
+NR-IQA methods on most distortion types, indicating strong
+generalizability across distortions. Although the model does
+not always achieve the top performance on every single type,
+it consistently ranks among the top two. When operating in reference mode, which incorporates reference image information
+and a memory-based matching mechanism, the model shows
+a significant performance boost and achieves consistently
+superior results across all distortion types.
+5) Comparison of Computational Complexity: To comprehensively evaluate the computational efficiency of different
+methods in practical applications, we compare the number
+of parameters (Params/M), the number of multiply accumulate operations (MACs/G), and the runtime (Runtime/min)
+required to process the entire PIPAL dataset during inference.
+Table VII summarizes the complexity performance of several
+mainstream FR-IQA methods alongside our proposed MQAFR model with different backbone configurations. The results
+show that, compared with methods such as AHIQ [12] and
+
+9
+
+TABLE VI
+SROCC VALUE COMPARISON IN LEAVE – ONE - DISTORTION - OUT CROSS - VALIDATION ON THE TID2013 DATASET. T HE BEST RESULT IS SHOWN IN BOLD ,
+†
+THE SECOND - BEST RESULT IS UNDERLINED , AND DENOTES THE REFERENCE MODE (MQAF-R) AND NO - REFERENCE MODE MODEL (MQAF-NR),
+WHEREAS ∗ INDICATES THE BEST RESULTS UNDER THE MQAF-R MODEL .
+
+Dist. type
+
+BRISQUE
+[59]
+
+ILNIQE
+[60]
+
+CORNIA
+[61]
+
+HOSA
+[62]
+
+WaDIQaM-NR
+[20]
+
+DBCNN
+[19]
+
+MetalQA
+[47]
+
+AGN
+ANC
+SCN
+MN
+HFN
+IN
+QN
+GB
+DEN
+JPEG
+JP2K
+JGTE
+J2TE
+NEPN
+Block
+MS
+CTC
+CCS
+MGN
+CN
+LCNI
+ICQD
+CHA
+SSR
+
+0.9356
+0.8114
+0.5457
+0.5852
+0.8956
+0.6559
+0.6555
+0.8656
+0.6143
+0.5186
+0.7592
+0.5604
+0.7003
+0.3111
+0.2659
+0.1852
+0.0182
+0.2142
+0.8777
+0.4706
+0.8238
+0.4883
+0.7470
+0.7727
+
+0.8760
+0.8159
+0.9233
+0.5120
+0.8685
+0.7551
+0.8730
+0.8142
+0.7500
+0.8349
+0.8578
+0.2827
+0.5248
+-0.0805
+-0.1357
+0.1845
+0.0141
+-0.1628
+0.6932
+0.3599
+0.8287
+0.7487
+0.6793
+0.8650
+
+0.4465
+0.1020
+0.6697
+0.6096
+0.8402
+0.3526
+0.3723
+0.8879
+0.6475
+0.8295
+0.8611
+0.7282
+0.4817
+0.3471
+0.2345
+0.1775
+0.2122
+0.2299
+0.4931
+0.5069
+0.7191
+0.7757
+0.6937
+0.8867
+
+0.7582
+0.4670
+0.6246
+0.5125
+0.8285
+0.1889
+0.4145
+0.7823
+0.5436
+0.8318
+0.5097
+0.4494
+0.1405
+0.2163
+0.3767
+0.0633
+0.0466
+-0.1390
+0.5491
+0.3740
+0.5053
+0.8036
+0.6657
+0.8273
+
+0.9080
+0.8700
+0.8802
+0.8065
+0.9314
+0.8779
+0.8541
+0.7520
+0.7680
+0.7841
+0.8706
+0.5191
+0.4322
+0.1230
+0.4059
+0.4596
+0.5401
+0.5640
+0.8810
+0.6466
+0.6882
+0.7965
+0.7950
+0.8220
+
+0.7585
+0.8423
+0.7800
+0.4501
+0.8192
+0.5798
+0.7502
+0.9015
+0.8103
+0.8131
+0.8162
+0.7023
+0.6577
+0.3774
+0.4169
+0.1023
+0.2946
+0.3423
+0.6700
+0.5544
+0.7600
+0.7608
+0.7097
+0.7700
+
+0.9473
+0.9240
+0.9534
+0.7277
+0.9518
+0.8653
+0.7454
+0.9767
+0.9383
+0.9340
+0.9586
+0.9297
+0.9034
+0.7238
+0.3899
+0.4016
+0.7637
+0.8294
+0.9392
+0.9516
+0.9779
+0.8597
+0.9269
+0.9744
+
+†
+
+MQAF-NR
+(Ours)
+0.9650
+0.9450
+0.9758
+0.8362
+0.9509
+0.8384
+0.9078
+0.9730
+0.9621
+0.9566
+0.9707
+0.9040
+0.9024
+0.5142
+0.5331
+0.3822
+0.8016
+0.8067
+0.9533
+0.9514
+0.9743
+0.9275
+0.9125
+0.9718
+
+†
+
+MQAF-R
+(Ours)
+*0.9694
+0.9188
+0.9726
+*0.8831
+*0.9667
+0.8172
+0.8917
+*0.9836
+*0.9704
+*0.9575
+*0.9803
+*0.9322
+*0.9286
+*0.7715
+*0.7086
+*0.7277
+0.7725
+*0.8629
+*0.9573
+*0.9570
+0.9743
+*0.9416
+*0.9275
+*0.9753
+
+TABLE VII
+C OMPARISON OF COMPUTATIONAL COMPLEXITY ON DIFFERENT METHODS AND BACKBONE NETWORKS .
+
+NAME
+
+PieAPP [43]
+
+LPIPS [17]
+
+DISTS [15]
+
+PDL [32]
+
+WaDIQaM-FR [20]
+
+A-DISTS [16]
+
+30.25
+68.38
+29.74
+
+20.04
+14.71
+1.98
+
+20.40
+16.02
+3.66
+
+25.40
+20.02
+11.66
+
+20.04
+14.72
+15.43
+
+20.04
+14.71
+3.10
+
+NAME
+
+AHIQ [12]
+
+DeepWSD [18]
+
+TOPIQ [14]
+
+DeepDC [63]
+
+MQAF-R
+w/VGG16
+
+MQAF-R
+w/ResNet50
+
+MACs / G
+Params / M
+Runtime / min
+
+1689.91
+133.39
+60.24
+
+25.40
+20.02
+11.66
+
+7.80
+32.35
+13.50
+
+19.05
+26.54
+3.47
+
+30.70
+16.29
+2.31
+
+8.27
+28.22
+2.57
+
+MACs / G
+Params / M
+Runtime / min
+
+PieAPP [43], the proposed MQAF-R model demonstrates good
+computational efficiency under the reference setting with both
+backbone options. When ResNet50 is used, although its parameter count is slightly higher than that of VGG16 (11.94M),
+its computational cost measured in MACs is significantly
+lower at 8.27G, which makes it more efficient than VGG16 and
+many other baseline models. Both backbone configurations
+maintain a well-balanced runtime, highlighting MQAF-R’s
+effective trade-off between accuracy and computational cost.
+
+C. Ablation Study and Analysis
+To validate the impact of our proposed method MQAF
+on overall performance, we designed and conducted ablation
+experiments. All experimental settings remained consistent
+with the complete model to ensure a fair comparison. Specifically, we first removed the memory mechanism to evaluate
+the contribution of memory storage and matching in quality
+assessment. As shown in Table VIII, after eliminating the
+memory-driven distortion pattern matching, the PLCC and
+SRCC metrics of the model significantly declined across all
+datasets. Moreover, the memory-driven model alone achieved
+the best results on the LIVE and TID2013 datasets. These
+
+10
+
+TABLE VIII
+R ESULTS OF ABLATION RESULTS ON FOUR BENCHMARK DATASETS . T HE BEST RESULT IS SHOWN IN BOLD .
+
+LIVE
+
+Method
+Memory-driven (w/o)
+MQAF-R (Ours)
+MQAF-NR (Ours)
+
+PLCC
+0.980
+0.982
+0.984
+
+CSIQ
+
+SRCC
+0.977
+0.980
+0.980
+
+PLCC
+0.964
+0.977
+0.971
+
+TID2013
+
+SRCC
+0.970
+0.979
+0.972
+
+PLCC
+0.931
+0.964
+0.963
+
+SRCC
+0.937
+0.966
+0.960
+
+KADID-10K
+PLCC
+0.950
+0.964
+0.962
+
+(a) PSNR
+
+(b) SSIM
+
+(c) MS-SSIM
+
+(d) VIF
+
+(e) MAD
+
+(f) FSIM
+
+(g) VSI
+
+(h) GMSD
+
+(i) NLPD
+
+(j) WaDIQaM-FR
+
+(k) PieAPP
+
+(l) DISTS
+
+SRCC
+0.950
+0.963
+0.958
+
+(m) The distribution scatter plots of our method (MQAF) on different datasets.
+
+Fig. 3. Scatter plot of prediction results for different FR-IQA methods and our method (MQAF-R) on the KADID-10K [38] dataset. The vertical axis
+represents the ground truth values, whereas the horizontal axis represents the predicted values.
+
+11
+
+Best PieAPP
+
+Best WaDIQaM-FR
+
+Best Ours
+
+Fixed
+Ours
+
+Fixed
+PieAPP
+
+Worst WaDIQaM-FR
+
+Worst Ours
+
+Worst PieAPP
+
+Fixed
+Ours
+
+Best Ours
+
+Best DISTS
+
+Fixed
+WaDIQaM-FR
+Worst Ours
+
+Fixed
+Ours
+Worst DISTS
+
+Best Ours
+Fixed
+DISTS
+Worst Ours
+
+Fig. 4. Comparison of gMAD competition results on the TID2013 dataset among our proposed MQAF-R method, PieAPP [43], WaDIQaM-FR [20], and
+DISTS [15] is presented.
+
+TABLE IX
+E FFECT OF THE NUMBER OF MEMORY UNITS ON MODEL PERFORMANCE
+ON THE TID2013 [37] DATASET.
+
+Memory Units
+128
+256
+512
+1024
+2048
+
+λ
+0.01
+0.01
+0.01
+0.01
+0.01
+
+PLCC
+0.963
+0.964
+0.963
+0.962
+0.962
+
+SRCC
+0.962
+0.964
+0.964
+0.962
+0.959
+
+TABLE X
+S ENSITIVITY ANALYSIS OF THE MEMORY LOSS IN E QUATION (9)
+HYPERPARAMETER λ ON THE TID2013 [37] DATASET.
+
+λ
+0
+0.001
+0.005
+0.01
+0.05
+0.1
+0.5
+1
+
+Memory Units
+256
+256
+256
+256
+256
+256
+256
+256
+
+PLCC
+0.963
+0.964
+0.963
+0.960
+0.963
+0.964
+0.962
+0.962
+
+SRCC
+0.962
+0.964
+0.963
+0.963
+0.964
+0.966
+0.963
+0.962
+
+findings confirm the effectiveness of storing and matching
+various distortion patterns in the memory bank, demonstrating
+that this mechanism significantly enhances the model’s ability
+to recognize different distortion types, thereby improving
+overall evaluation performance.
+D. Sensitivity Parameter Analysis
+To further analyse the impact of the number of memory
+units on model performance, we conducted sensitivity experiments with memory unit counts set to 128, 256, 512, 1024,
+and 2048 on the TID2013 dataset. The experimental results
+are presented in Table IX. As shown in the results, variations
+in the number of memory units affected both the PLCC and
+SRCC metrics. When the number of memory units was set
+to 256, the model achieved the best performance across all
+
+datasets, indicating that an appropriately sized memory bank
+can effectively enhance the accuracy of quality assessment.
+Additionally, to validate the effectiveness of the memory loss
+(decorrelation loss) during training and explore the sensitivity
+of the hyperparameter λ, we conducted further experiments.
+Table X presents the model’s performance under different
+values of λ (0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1). When the
+decorrelation loss is removed, the model exhibits relatively
+balanced performance. However, when λ = 0.1, the model
+achieves the optimal SRCC score. This finding suggests that
+memory loss plays a role in reducing redundancy among
+memory units and promoting the learning of more independent
+feature representations, thereby improving the overall quality
+assessment performance. All the experimental results in this
+paper are obtained with the number of memory units set to
+256 and λ = 0.1.
+E. Qualitative Evaluation
+To better illustrate the performance advantages of our proposed method (MQAF), we conducted a visualization analysis.
+As shown in Figure 1, we plotted radar charts comparing
+MQAF-R with state-of-the-art IQA methods across different
+datasets. The figure clearly shows that MQAF-R has significant performance advantages across multiple dimensions.
+Additionally, we generated scatter plots that compare the
+actual scores and predicted scores of MQAF-R with those
+of 12 classical FR-IQA methods, as shown in Figure 3. This
+figure presents the prediction results of different methods on
+the KADID-10K dataset. The experimental results indicate that
+the predicted scores of MQAF-R are highly correlated with the
+ground truth scores, further confirming that MQAF-R achieves
+outstanding prediction performance on datasets containing
+various types of distortions. In addition, we employed the
+group maximum differentiation (gMAD) competition method
+to evaluate the robustness and discriminative capability of the
+proposed MQAF-R method. Figure 4 presents the subjective
+results of MQAF-R compared with those of PieAPP [43],
+WaDIQaM-FR [20], and DISTS [15]. In the competition,
+when MQAF-R acts as the defender (considering image pairs
+to be of similar quality) and the other three methods act
+
+12
+
+as attackers, an attack is deemed successful if the attacker
+finds a counterexample (i.e., a pair with a significant quality
+difference); otherwise, it is considered a failure. As shown
+in Figure 4, MQAF-R, as the defender, accurately identifies image pairs of similar quality, which is consistent with
+subjective perception, whereas the other methods mistakenly
+judge these pairs as having significant differences. Conversely,
+when MQAF-R serves as the attacker, it effectively detects
+image pairs with large quality differences (counterexamples).
+Compared with the other three methods, MQAF-R more
+accurately distinguishes between high-quality and low-quality
+image pairs, demonstrating superior discriminative ability.
+VI. C ONCLUSION
+This paper addresses the limitations of existing image quality assessment methods that heavily depend on high-quality
+reference images and proposes a memory-driven quality-aware
+framework (MQAF). By constructing a trainable memory
+bank with dedicated units for distortion patterns, MQAF
+autonomously learns and stores typical distortion features,
+reducing reliance on reference images. When available, reference images are combined with stored distortion patterns for
+adaptive evaluation; otherwise, quality assessment relies solely
+on memory matching. This dual-mode operation enhances
+adaptability across diverse application scenarios. Additionally,
+an end-to-end joint optimization strategy integrates memory
+matching loss and quality regression loss for unified training.
+Even without a reference or with low-quality references,
+MQAF maintains stable performance, demonstrating strong
+robustness and broad applicability.
+R EFERENCES
+[1] W. Xian, M. Zhou, B. Fang, T. Xiang, W. Jia, and B. Chen,
+“Perceptual quality analysis in deep domains using structure
+separation and high-order moments,” IEEE Transactions on
+Multimedia, pp. 1–16, 2023. 1
+[2] H. Zheng, H. Yang, J. Fu, Z.-J. Zha, and J. Luo, “Learning
+conditional knowledge distillation for degraded-reference image
+quality assessment,” in Proceedings of the IEEE/CVF International Conference on Computer Vision, 2021, pp. 10 242–
+10 251.
+[3] W. Shen, M. Zhou, J. Luo, Z. Li, and S. Kwong, “Graphrepresented distribution similarity index for full-reference image
+quality assessment,” IEEE Transactions on Image Processing,
+2024.
+[4] X. Liao, X. Wei, M. Zhou, H.-S. Wong, and S. Kwong,
+“Image quality assessment: Exploring joint degradation effect
+of deep network features via kernel representation similarity
+analysis,” IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 2025.
+[5] M. Cheon, S.-J. Yoon, B. Kang, and J. Lee, “Perceptual image
+quality assessment with transformers,” in Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition, 2021, pp. 433–442. 1
+[6] X. Liao, X. Wei, M. Zhou, Z. Li, and S. Kwong, “Image quality
+assessment: Measuring perceptual degradation via distribution
+measures in deep feature spaces,” IEEE Transactions on Image
+Processing, 2024. 1, 3, 5
+[7] M. Zhou, H. Wang, X. Wei, Y. Feng, J. Luo, H. Pu, J. Zhao,
+L. Wang, Z. Chu, X. Wang et al., “Hdiqa: A hyper debiasing
+framework for full reference image quality assessment,” IEEE
+Transactions on Broadcasting, 2024.
+
+[8] S. Lang, X. Liu, M. Zhou, J. Luo, H. Pu, X. Zhuang, J. Wang,
+X. Wei, T. Zhang, Y. Feng, and Z. Shang, “A full-reference
+image quality assessment method via deep meta-learning and
+conformer,” IEEE Transactions on Broadcasting, pp. 1–9, 2023.
+1
+[9] K. Simonyan and A. Zisserman, “Very deep convolutional
+networks for large-scale image recognition,” arXiv preprint
+arXiv:1409.1556, 2014. 1
+[10] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning
+for image recognition,” in Proceedings of the IEEE conference
+on computer vision and pattern recognition, 2016, pp. 770–778.
+1
+[11] J. Liu, X. Li, Y. Peng, T. Yu, and Z. Chen, “Swiniqa: Learned
+swin distance for compressed image quality assessment,” in
+Proceedings of the IEEE/CVF Conference on computer vision
+and pattern recognition, 2022, pp. 1795–1799. 1
+[12] S. Lao, Y. Gong, S. Shi, S. Yang, T. Wu, J. Wang, W. Xia,
+and Y. Yang, “Attentions help cnns see better: Attention-based
+hybrid image quality assessment network,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 2022, pp. 1140–1149. 8, 9
+[13] J. Ke, Q. Wang, Y. Wang, P. Milanfar, and F. Yang, “Musiq:
+Multi-scale image quality transformer,” in Proceedings of the
+IEEE/CVF international conference on computer vision, 2021,
+pp. 5148–5157.
+[14] C. Chen, J. Mo, J. Hou, H. Wu, L. Liao, W. Sun, Q. Yan,
+and W. Lin, “Topiq: A top-down approach from semantics to
+distortions for image quality assessment,” IEEE Transactions
+on Image Processing, 2024. 1, 6, 7, 9
+[15] K. Ding, K. Ma, S. Wang, and E. P. Simoncelli, “Image
+quality assessment: Unifying structure and texture similarity,”
+IEEE transactions on pattern analysis and machine intelligence,
+vol. 44, no. 5, pp. 2567–2581, 2020. 1, 6, 7, 9, 11
+[16] K. Ding, Y. Liu, X. Zou, S. Wang, and K. Ma, “Locally adaptive
+structure and texture similarity for image quality assessment,”
+in Proceedings of the 29th ACM International Conference on
+multimedia, 2021, pp. 2483–2491. 1, 6, 7, 9
+[17] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang,
+“The unreasonable effectiveness of deep features as a perceptual
+metric,” in Proceedings of the IEEE conference on computer
+vision and pattern recognition, 2018, pp. 586–595. 1, 2, 5, 6,
+7, 8, 9
+[18] X. Liao, B. Chen, H. Zhu, S. Wang, M. Zhou, and S. Kwong,
+“Deepwsd: Projecting degradations in perceptual space to
+wasserstein distance in deep feature space,” in Proceedings of
+the 30th ACM International Conference on Multimedia, 2022,
+pp. 970–978. 1, 3, 5, 6, 7, 9
+[19] W. Zhang, K. Ma, J. Yan, D. Deng, and Z. Wang, “Blind image
+quality assessment using a deep bilinear convolutional neural
+network,” IEEE Transactions on Circuits and Systems for Video
+Technology, vol. 30, no. 1, pp. 36–47, 2018. 1, 6, 7, 9
+[20] S. Bosse, D. Maniry, K.-R. Müller, T. Wiegand, and W. Samek,
+“Deep neural networks for no-reference and full-reference image quality assessment,” IEEE Transactions on image processing, vol. 27, no. 1, pp. 206–219, 2017. 1, 6, 7, 8, 9, 11
+[21] A. Tversky and D. Kahneman, “Judgment under uncertainty:
+Heuristics and biases: Biases in judgments reveal some heuristics of thinking under uncertainty.” science, vol. 185, no. 4157,
+pp. 1124–1131, 1974. 1, 2
+[22] S. S. Stevens, “On the psychophysical law.” Psychological
+review, vol. 64, no. 3, p. 153, 1957. 2
+[23] L. Marks, Sensory processes: The new psychophysics. Elsevier,
+2014. 1
+[24] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli,
+“Image quality assessment: from error visibility to structural
+similarity,” IEEE transactions on image processing, vol. 13,
+no. 4, pp. 600–612, 2004. 2, 6, 7, 8
+[25] Z. Wang, E. P. Simoncelli, and A. C. Bovik, “Multiscale structural similarity for image quality assessment,” in The Thrity-
+
+13
+
+Seventh Asilomar Conference on Signals, Systems & Computers,
+2003, vol. 2. Ieee, 2003, pp. 1398–1402. 2, 6, 7
+[26] J. Wu, W. Lin, G. Shi, and A. Liu, “Reduced-reference image quality assessment with visual information fidelity,” IEEE
+Transactions on Multimedia, vol. 15, no. 7, pp. 1700–1705,
+2013. 2, 6, 7, 8
+[27] E. C. Larson and D. M. Chandler, “Most apparent distortion:
+full-reference image quality assessment and the role of strategy,”
+Journal of electronic imaging, vol. 19, no. 1, p. 011006, 2010.
+2, 6, 7, 8
+[28] L. Zhang, L. Zhang, X. Mou, and D. Zhang, “Fsim: A feature
+similarity index for image quality assessment,” IEEE transactions on Image Processing, vol. 20, no. 8, pp. 2378–2386, 2011.
+2, 6, 7, 8
+[29] L. Zhang, Y. Shen, and H. Li, “Vsi: A visual saliency-induced
+index for perceptual image quality assessment,” IEEE Transactions on Image processing, vol. 23, no. 10, pp. 4270–4281,
+2014. 2, 6, 7
+[30] Z. Wang and E. P. Simoncelli, “Reduced-reference image quality assessment using a wavelet-domain natural image statistic
+model,” in Human vision and electronic imaging X, vol. 5666.
+SPIE, 2005, pp. 149–159. 2
+[31] M. Liu, K. Gu, G. Zhai, P. Le Callet, and W. Zhang, “Perceptual
+reduced-reference visual quality assessment for contrast alteration,” IEEE Transactions on Broadcasting, vol. 63, no. 1, pp.
+71–81, 2016. 2
+[32] M. Delbracio, H. Talebei, and P. Milanfar, “Projected distribution loss for image enhancement,” in 2021 IEEE International
+Conference on Computational Photography (ICCP). IEEE,
+2021, pp. 1–12. 3, 9
+[33] J. Ma, J. Wu, L. Li, W. Dong, and X. Xie, “Active inference of
+gan for no-reference image quality assessment,” in 2020 IEEE
+International Conference on Multimedia and Expo (ICME).
+IEEE, 2020, pp. 1–6. 3, 6
+[34] Z. Shan, Y. Zhang, Q. Yang, H. Yang, Y. Xu, and S. Liu, “Pame:
+Self-supervised masked autoencoder for no-reference point
+cloud quality assessment,” arXiv preprint arXiv:2403.10061,
+2024.
+[35] Z. Pan, F. Yuan, J. Lei, Y. Fang, X. Shao, and S. Kwong, “Vcrnet: Visual compensation restoration network for no-reference
+image quality assessment,” IEEE Transactions on Image Processing, vol. 31, pp. 1613–1627, 2022. 3, 6
+[36] H. R. Sheikh, M. F. Sabir, and A. C. Bovik, “A statistical
+evaluation of recent full reference image quality assessment
+algorithms,” IEEE Transactions on image processing, vol. 15,
+no. 11, pp. 3440–3451, 2006. 6, 7, 8
+[37] N. Ponomarenko, O. Ieremeiev, V. Lukin, K. Egiazarian, L. Jin,
+J. Astola, B. Vozel, K. Chehdi, M. Carli, F. Battisti et al., “Color
+image database tid2013: Peculiarities and preliminary results,”
+in European workshop on visual information processing (EUVIP). IEEE, 2013, pp. 106–111. 6, 7, 11
+[38] H. Lin, V. Hosu, and D. Saupe, “Kadid-10k: A large-scale artificially distorted iqa database,” in 2019 Eleventh International
+Conference on Quality of Multimedia Experience (QoMEX).
+IEEE, 2019, pp. 1–3. 6, 7, 10
+[39] G. Jinjin, C. Haoming, C. Haoyu, Y. Xiaoxing, J. S. Ren, and
+D. Chao, “Pipal: a large-scale image quality assessment dataset
+for perceptual image restoration,” in Computer Vision–ECCV
+2020: 16th European Conference, Glasgow, UK, August 23–28,
+2020, Proceedings, Part XI 16. Springer, 2020, pp. 633–651.
+6, 7, 8
+[40] W. Xue, L. Zhang, X. Mou, and A. C. Bovik, “Gradient
+magnitude similarity deviation: A highly efficient perceptual
+image quality index,” IEEE transactions on image processing,
+vol. 23, no. 2, pp. 684–695, 2013. 6, 7, 8
+[41] V. Laparra, J. Ballé, A. Berardino, and E. P. Simoncelli, “Perceptual image quality assessment using a normalized laplacian
+pyramid,” Electronic Imaging, vol. 28, pp. 1–6, 2016. 6, 7
+[42] J. Kim and S. Lee, “Deep learning of human visual sensitivity
+
+in image quality assessment framework,” in Proceedings of the
+IEEE conference on computer vision and pattern recognition,
+2017, pp. 1676–1684. 6, 7, 8
+[43] E. Prashnani, H. Cai, Y. Mostofi, and P. Sen, “Pieapp: Perceptual image-error assessment through pairwise preference,” in
+Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, 2018, pp. 1808–1817. 6, 7, 8, 9, 11
+[44] H. Lin, V. Hosu, and D. Saupe, “Deepfl-iqa: Weak supervision
+for deep iqa feature learning,” arXiv preprint arXiv:2001.08113,
+2020. 6, 7
+[45] S. Seo, S. Ki, and M. Kim, “A novel just-noticeable-differencebased saliency-channel attention residual network for fullreference image quality predictions,” IEEE Transactions on
+Circuits and Systems for Video Technology, vol. 31, no. 7, pp.
+2602–2616, 2020. 6, 7
+[46] J. You and J. Korhonen, “Transformer for image quality assessment,” in 2021 IEEE International Conference on Image
+Processing (ICIP). IEEE, 2021, pp. 1389–1393. 6, 7
+[47] H. Zhu, L. Li, J. Wu, W. Dong, and G. Shi, “Metaiqa: Deep
+meta-learning for no-reference image quality assessment,” in
+Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 2020, pp. 14 143–14 152. 6, 7, 9
+[48] W. Pan, T. Gao, Y. Zhang, X. Zheng, Y. Shen, K. Li, R. Hu,
+Y. Liu, and P. Dai, “Semi-supervised blind image quality assessment through knowledge distillation and incremental learning,”
+in Proceedings of the AAAI Conference on Artificial Intelligence, vol. 38, no. 5, 2024, pp. 4388–4396. 6, 7
+[49] M. Liu, J. Huang, D. Zeng, X. Ding, and J. Paisley, “A
+multiscale approach to deep blind image quality assessment,”
+IEEE Transactions on Image Processing, vol. 32, pp. 1656–
+1667, 2023. 6, 7
+[50] T. Zhou, S. Tan, B. Zhao, and G. Yue, “Multitask deep neural
+network with knowledge-guided attention for blind image quality assessment,” IEEE Transactions on Circuits and Systems for
+Video Technology, 2024. 6, 7
+[51] M. Zhou, W. Shen, X. Wei, J. Luo, F. Jia, X. Zhuang, and W. Jia,
+“Blind image quality assessment: Exploring content fidelity
+perceptibility via quality adversarial learning,” International
+Journal of Computer Vision, pp. 1–17, 2025. 6, 7
+[52] P. H. Ramsey, “Critical values for spearman’s rank order correlation,” Journal of educational statistics, vol. 14, no. 3, pp.
+245–253, 1989. 7
+[53] I. Cohen, Y. Huang, J. Chen, J. Benesty, J. Benesty, J. Chen,
+Y. Huang, and I. Cohen, “Pearson correlation coefficient,” Noise
+reduction in speech processing, pp. 1–4, 2009. 7
+[54] S. Bosse, D. Maniry, K.-R. Müller, T. Wiegand, and W. Samek,
+“Deep neural networks for no-reference and full-reference image quality assessment,” IEEE Transactions on image processing, vol. 27, no. 1, pp. 206–219, 2017. 7
+[55] E. C. Larson and D. M. Chandler, “Most apparent distortion:
+full-reference image quality assessment and the role of strategy,”
+Journal of electronic imaging, vol. 19, no. 1, pp. 011 006–
+011 006, 2010. 7
+[56] S. Shi, Q. Bai, M. Cao, W. Xia, J. Wang, Y. Chen, and Y. Yang,
+“Region-adaptive deformable network for image quality assessment,” in Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2021, pp. 324–333.
+7, 8
+[57] H. R. Sheikh, A. C. Bovik, and G. De Veciana, “An information fidelity criterion for image quality assessment using natural scene statistics,” IEEE Transactions on image processing,
+vol. 14, no. 12, pp. 2117–2128, 2005. 8
+[58] W. Kim, A.-D. Nguyen, S. Lee, and A. C. Bovik, “Dynamic
+receptive field generation for full-reference image quality assessment,” IEEE Transactions on Image Processing, vol. 29,
+pp. 4219–4231, 2020. 8
+[59] L. Zhang, L. Zhang, and A. C. Bovik, “A feature-enriched
+completely blind image quality evaluator,” IEEE Transactions
+on Image Processing, vol. 24, no. 8, pp. 2579–2591, 2015. 9
+
+14
+
+[60] A. Mittal, A. K. Moorthy, and A. C. Bovik, “No-reference image
+quality assessment in the spatial domain,” IEEE Transactions on
+image processing, vol. 21, no. 12, pp. 4695–4708, 2012. 9
+[61] P. Ye, J. Kumar, L. Kang, and D. Doermann, “Unsupervised
+feature learning framework for no-reference image quality assessment,” in 2012 IEEE conference on computer vision and
+pattern recognition. IEEE, 2012, pp. 1098–1105. 9
+[62] J. Xu, P. Ye, Q. Li, H. Du, Y. Liu, and D. Doermann, “Blind
+image quality assessment based on high order statistics aggregation,” IEEE Transactions on Image Processing, vol. 25, no. 9,
+pp. 4444–4457, 2016. 9
+[63] H. Zhu, B. Chen, L. Zhu, S. Wang, and W. Lin, “Deepdc: Deep
+distance correlation as a perceptual image quality evaluator,”
+arXiv preprint arXiv:2211.04927, 2022. 9
+
+

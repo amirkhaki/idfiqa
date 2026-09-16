@@ -1,0 +1,1932 @@
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving
+AI-Generated Images
+
+Xinyue Li 1 Zhiming Xu 2 Min Tang 1 Zhaolin Cai 1 Sijing Wu 1 Xiongkuo Min 1 Yitong Chen 1
+Guangtao Zhai 1
+Generative Model
+Capability
+
+arXiv:2602.03558v2 [cs.CV] 29 Apr 2026
+
+Abstract
+Generative text-to-image models are advancing
+at an unprecedented pace, continuously shifting
+the perceptual quality ceiling and rendering previously collected labels unreliable for newer generations. To address this, we present ELIQ, a
+Label-free Framework for Quality Assessment
+of Evolving AI-generated Images. Specifically,
+ELIQ focuses on visual quality and prompt-image
+alignment, automatically constructs positive and
+aspect-specific negative pairs to cover both conventional distortions and AIGC-specific distortion
+modes, enabling transferable supervision without human annotations. Building on these pairs,
+ELIQ adapts a pre-trained multimodal model
+into a quality-aware critic via instruction tuning and predicts two-dimensional quality using
+lightweight gated fusion and a Quality Query
+Transformer. Experiments across multiple benchmarks demonstrate that ELIQ consistently outperforms existing label-free methods, generalizes from AI-generated content (AIGC) to usergenerated content (UGC) scenarios without modification, and paves the way for scalable and labelfree quality assessment under continuously evolving generative models. The code will be released
+upon publication.
+
+MOS Inconsistency
+
+Early AIGC
+
+Modern AIGC
+
+AIGC images before 2023
+1
+
+AIGC images from 2025
+
+1
+
+Early MOS
+Distribution
+
+5
+1
+Modern MOS
+Distribution
+
+5
+
+Heavy Human Annotation Burden
+
+Each image
+was evaluated by ≥ 15 subjects
+
+ELIQ
+Positive
+
+Aesthetic
+
+Alignment
+
+Technical
+
+Supervision Construction
+
+AGIN (2025,TCSVT)
+
+KonIQ-10k (2020,TIP)
+
+quality-aware critic
+
+• 6,049 images
+
+• 10,073 images
+• 1,200,000 ratings
+
+MLLM High/Low
+
+• 907,350 ratings
+22.7s
+1 person/1 image
+
+1,459
+crowd workers
+
+5
+
+MOS across Generations
+
+QQT
+
+Lower quality
+
+higher quality
+
+N
+N
+N
+
+P
+
+margin
+
+Pairwise Ranking
+
+Figure 1. The rapid evolution of generative models shifts MOS
+distributions, making annotations increasingly inconsistent. ELIQ
+replaces absolute MOS labels with automatically constructed supervision, enabling scalable quality assessment for evolving AIGC.
+
+et al., 2025). This evolution induces a perceptual drift: artifacts that were once salient become less common, while
+new failure modes emerge as models change. This implies
+that evaluation must account for distribution shift and a
+drifting perceptual reference, rather than assuming a fixed
+perceptual scale (Hinder et al., 2023).
+Current image quality assessment (IQA) methods primarily
+rely on supervised learning with human mean opinion scores
+(MOS) (Li et al., 2025; Wang et al., 2024). While MOS can
+provide reliable subjective judgments under controlled protocols, it implicitly assumes a stable perceptual scale shared
+across data collection and deployment (Li et al., 2023). This
+assumption breaks down in rapidly evolving generative settings, as illustrated in Figure 1, where identical MOS values
+may correspond to markedly different perceptual quality
+levels across model generations (Hinder et al., 2023). More
+fundamentally, maintaining valid MOS supervision would
+require frequent re-annotation to recalibrate the perceptual
+scale, resulting in limited long-term scalability and heavy
+annotation cost. As summarized in Table 1, this typically
+
+1. Introduction
+The rapid evolution of generative visual models has fundamentally reshaped the perceptual quality landscape of AIgenerated content (Cha et al., 2025; Shi et al., 2024). Unlike
+traditional user-generated content (UGC) images, whose
+quality distributions are relatively stable (Roy et al., 2023),
+modern generative models continuously shift the upper
+bound of perceptual quality within short time spans (Huang
+1
+
+Shanghai Jiao Tong University 2 Xi’an Jiaotong University.
+Correspondence to: Yitong Chen <yitongchen@sjtu.edu.cn>,
+Guangtao Zhai <zhaiguangtao@sjtu.edu.cn>.
+Preprint. April 30, 2026.
+
+1
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+Table 1. Human annotation scale of representative IQA benchmarks.
+Dataset
+
+Images
+
+Human Ratings
+
+KonIQ-10k (Hosu et al., 2020)
+PaQ-2-PiQ (Ying et al., 2019)
+AIGIQA-20K (Li et al., 2024a)
+AGIN (Chen et al., 2024b)
+EvalMuse-40k (Han et al., 2024)
+EvalMi-50K (Wang et al., 2025a)
+Q-Eval-100k (Zhang et al., 2025a)
+
+10,073
+40,000
+20,000
+6,049
+40,000
+50,400
+100,000
+
+1,208,760
+4,000,000
+420,000
+907,350
+1,000,000
+2,419,200
+960,000
+
+tural modification, providing a scalable alternative to MOSdependent evaluation and enabling more sustainable quality
+assessment under evolving generative models.
+Our main contributions are threefold:
+• We introduce ELIQ, a label-free framework for quality
+assessment of evolving AI-generated images, which
+decouples supervision from fixed MOS scales and remains effective as generative models and perceptual
+standards evolve.
+• We develop an assessment pipeline that jointly models visual quality and prompt-image alignment, using
+automatically constructed positive and aspect-specific
+negative pairs to adapt a pretrained multimodal model
+into a quality-aware critic with lightweight, label-free
+scoring.
+
+requires millions of human ratings even for medium-scale
+benchmarks.
+These limitations have motivated exploration of unsupervised IQA methods, such as NSS-based metrics (Mittal
+et al., 2012a;b), deep-feature statistics (Ni et al., 2024),
+reconstruction-based criteria (Shukla et al., 2024), and CLIPbased measures (Wang et al., 2023a). However, most existing approaches are designed for natural images or low-level
+distortions, and thus transfer poorly to modern AIGC (Peng
+et al., 2024). In practice, the quality of AI-generated content depends not only on low-level visual fidelity but also
+on whether the generated image correctly reflects the input prompt and avoids generation-specific artifacts (Peng
+et al., 2024). Such factors are difficult to capture with conventional unsupervised signals that mainly track low-level
+statistics. At the same time, although modern large multimodal models (MLLMs) (Wang et al., 2025b; Bai et al.,
+2025) demonstrate strong visual and semantic understanding, a key open challenge is how to derive scalable and
+continually updatable supervision that turns MLLMs into
+reliable label-free evaluators under perceptual drift.
+
+• Extensive experiments across multiple benchmarks
+show that ELIQ consistently outperforms existing
+label-free and weakly supervised methods, remains
+competitive with strong supervised baselines, and
+generalizes effectively from AI-generated to usergenerated image scenarios.
+
+2. Related Work
+2.1. AIGC Generation Models
+Recent text-to-image (T2I) models have rapidly evolved
+with diffusion and transformer-based backbones, continuously raising the perceptual quality ceiling and introducing
+diverse, model-specific artifacts. Representative advances
+include DDPM (Ho et al., 2020) and accelerated sampling
+with DDIM (Song et al., 2021), latent diffusion (Rombach et al., 2022) that underpins Stable Diffusion and
+SDXL (Podell et al., 2024), and transformer-style diffusion
+backbones such as DiT (Peebles & Xie, 2023) and PixArtα (Chen et al., 2024a). Recent large-scale systems further
+scale data and unified conditioning, e.g., FLUX (Labs et al.,
+2025) and Qwen-Image (Wu et al., 2025). This fast iteration
+makes it increasingly difficult to maintain consistent human annotations over time, motivating scalable supervision
+beyond MOS.
+
+In this work, we propose ELIQ, a Label-free Framework for
+Quality Assessment of Evolving AI-generated Images. Our
+key idea is to replace absolute MOS supervision with automatically constructed relative comparisons that can be periodically refreshed under perceptual drift. ELIQ targets two
+model-agnostic dimensions of AIGC quality: visual quality
+and prompt-image alignment. By generating high-quality
+positives and aspect-aware negative pairs that cover both
+conventional low-level distortions and AIGC-specific failure
+modes, ELIQ provides supervision independent of any fixed
+perceptual scale. Based on this supervision, we fine-tune a
+pretrained multimodal model into a quality-aware critic, and
+then train a lightweight scoring module with gated visualalignment representations and a Quality Query Transformer
+to predict visual and alignment quality scores.
+
+2.2. Image Quality Assessment
+Early IQA methods estimate perceptual quality using handcrafted priors such as structural similarity (SSIM) and natural scene statistics (NSS), with representative no-reference
+metrics including BRISQUE (Mittal et al., 2012a) and
+NIQE (Mittal et al., 2012b). With deep learning, IQA
+shifts to learned quality representations that better handle authentic distortions; transformer-based models such
+as MUSIQ (Ke et al., 2021) and hybrid designs like
+
+Experiments on multiple AIGC and UGC benchmarks show
+that our method consistently outperforms existing unsupervised and label-free approaches and substantially narrows
+the gap with supervised baselines. Moreover, ELIQ generalizes seamlessly from AIGC to UGC without architec2
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+Overall pipeline. ELIQ consists of two coupled components: (i) Label-Free Supervision Construction and (ii)
+Model Training. First, we construct a set of high-quality
+positives and aspect-specific negatives to yield comparison
+tuples
+
+−
+−
+T = I + , Itec
+, Iaes
+, p, p−
+(1)
+ali ,
+
+MANIQA (Yang et al., 2022) further improve multi-scale
+context modeling.
+2.3. Multi-modal Model-based IQA
+Vision-language priors enable IQA with stronger semantic awareness and improved zero-shot capability. CLIPbased methods such as LIQE (Zhang et al., 2023) and CLIPIQA (Wang et al., 2023a) explore embedding alignment and
+prompt-based assessment for no-reference quality prediction. For AIGC-IQA, several approaches explicitly model
+prompt-image correspondence, e.g., IPCE (Peng et al.,
+2024) and CLIP-AGIQA (Fu et al., 2024), while MLLMbased critics have been used to output discrete judgments
+or continuous scores for both quality and alignment (Zhang
+et al., 2025b). Despite their progress, most AIGC-IQA
+methods still rely on large-scale MOS or preference labels,
+which are costly to refresh under rapidly evolving generative
+models.
+
+−
+−
+where Itec
+and Iaes
+degrade visual quality, and p−
+ali induces
+prompt-image mismatch. This construction covers both
+conventional corruptions and AIGC-specific failure modes.
+
+Second, we use these tuples to adapt a pretrained multimodal model into a quality-aware critic and obtain quality
+scores. Concretely, we (1) perform quality-aware instruction tuning to obtain a backbone MLLMθ∗ that can reason
+about technical quality, aesthetic quality, and alignment, and
+(2) freeze MLLMθ∗ and train a lightweight scoring module
+to produce outputs with single-image inference:
+(I, p) −→ ŝvis (I), ŝali (I, p).
+
+(2)
+
+The scoring module is trained only with pairwise ranking
+constraints derived from T , encouraging I + to score higher
+than its visual negatives and (I + , p) to score higher than
+(I + , p−
+ali ). With this design, ELIQ remains independent of
+any fixed MOS scale while directly targeting the two key
+dimensions of AI-generated image quality.
+
+2.4. Label-Free IQA Methods
+To reduce the dependence on MOS, label-free IQA estimates
+quality using proxies that avoid human scores. Classical
+approaches follow an NSS paradigm, measuring deviations
+from learned pristine statistics, such as NIQE (Mittal et al.,
+2012b) and IL-NIQE (Zhang et al., 2015). Recent deep
+variants learn distributional priors or ”distance-to-pristine”
+criteria in feature/latent space (Li et al., 2024b; Shukla et al.,
+2024; Babu et al., 2023). Another line learns quality-aware
+representations via self-supervision or pseudo-ranking, including QPT (Zhao et al., 2023), CONTRIQUE (Madhusudana et al., 2022), and ARNIQA (Agnolucci et al., 2024b).
+Multimodal label-free IQA also emerges, where QualiCLIP (Agnolucci et al., 2024a) aligns synthetic degradations
+with quality-related text prompts to learn quality-sensitive
+embeddings without MOS. However, existing label-free
+methods often rely on synthetic distortions or proxy supervision, limiting robustness to diverse and model-specific
+AIGC artifacts and motivating label-free supervision that
+explicitly constructs quality-aware comparisons.
+
+3.2. Label-Free Supervision Construction
+3.2.1. P ROMPT S ELECTION
+To cover diverse visual content with clear semantics, we
+adopt a seven-category taxonomy: Indoor Scenes, Urban
+Scenes, Natural Scenes, People & Activities, Objects & Artifacts, Food, and Events. Each category is expanded into representative sub-concepts, and we use GPT-5 with categoryspecific rules to generate 400 text-to-image prompts that
+are diverse in wording yet consistent in semantics, such as
+realistic content, category-aligned constraints, and a length
+limit. Since a prompt may involve multiple concepts, we further assign multi-label categories via a two-step procedure:
+rule-based keyword matching followed by an LLM refinement for uncertain cases. More details on the taxonomy
+design, generation rules, and the multi-label assignment are
+provided in the Appendix.
+
+3. Proposed Method
+3.1. Framework Overview
+
+3.2.2. P OSITIVE S AMPLE G ENERATION
+
+Problem setup. Given an AI-generated image I and its
+prompt p, ELIQ aims to predict two quality scores: a visual quality score ŝvis (I) and an alignment quality score
+ŝali (I, p). The key challenge is that MOS-based absolute
+supervision is expensive and quickly becomes outdated as
+generative models evolve. ELIQ therefore replaces MOS
+with label-free relative supervision that can be re-generated
+for new model eras.
+
+To construct high-quality positive samples, we use the 400
+curated prompts as inputs to three text-to-image generation
+models: Qwen-Image (Wu et al., 2025), FLUX.1-dev (Labs
+et al., 2025), and Stable Diffusion 3.5-Large. These prompts
+cover seven major semantic categories, ensuring representative visual content. These models differ in architecture and
+training data, allowing us to obtain image sets that reliably
+reflect the semantic content described in each prompt. For
+3
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+400 high-quality prompts, covering 7 main categories.
+•
+
+A tranquil mountain valley
+covered with mist at sunrise.
+
+•
+
+City streets glowing with neon
+lights after the rain.
+
+•
+
+Friends laughing together……
+
+Technical degradation
+
+Aesthetic degradation
+
+“Bright coral reefs visible
+beneath shallow tropical waters”
+
+Original Prompt
+Composition
+Color
+degradation
+degradation
+
+I2I Model
+
+Qwen-Image
+FLUX.1-dev
+Stable-Diffusion-3.5-Large
+
+Alignment degradation
+Misalignment Images
+“Elevated
+trains …”
+
+Simulated AI-specific Distortion
+Technical degradation
+
+Aesthetic degradation
+
+Degradation
+Prompt
+
+Prompt:“Desert wind sculpting …”
+
+Original
+Prompt
+
+“Deep canyon
+walls …”
+
+“Blurry deep
+canyon walls …”
+
+Shuffle image-prompt pairs
+I2I Model
+
+Alignment degradation
+
+“Morning fog drifting
+between high-rise buildings”
+
+Original Prompt Modified Prompt
+“A golden
+“A silver
+autumn …”
+spring …”
+Compositiondistorted Images
+
+1,200 high-quality AI-generated images
+
+3 High-quality T2I models
+
+“A flower
+shop filled …”
+
+Original
+images
+
+Multiple JPEG compressions
+
+Add Gaussian noise
+
+High-quality sample generation
+
+Natural Scenes
+Urban Scenes
+Indoor Scenes
+People & Activities
+Objects & Artifacts
+Food
+Events
+
+Color-distorted
+Images
+
+I2I with modified prompts
+
+Simulated Conventional Distortion
+
+Generate by degradation prompt
+
+Diffusion intermediate steps
+Step i
+
+3 High Quality
+3 Low Quality
+T2I Model
+T2I Model
+Low-quality T2I generator
+
+“Dense fog
+softening …”
+
+“Foggy city,
+overly …”
+
+Latent
+
+Semantic
+Mismatches
+Modify prompt-image pairs
+
+Low-quality sample
+Use early diffusion steps
+
+T2I with modified prompts
+
+Figure 2. Overview of label-free positive and aspect-specific negative sample construction. High-quality images are generated from curated
+prompts using multiple T2I models, while negative samples are created by simulating technical, aesthetic, and alignment degradations,
+including both conventional distortions and AI-specific generation artifacts.
+
+every prompt, one image is generated by each model, resulting in three corresponding sets of positive samples and a
+total of 1, 200 high-quality AI-generated images.
+
+modified prompts to generate images with a high-quality
+T2I model, followed by mismatching images and prompts
+across prompt variants to induce semantic misalignment.
+Detailed generation procedures and settings are provided in
+the Appendix.
+
+3.2.3. G ENERATION OF N EGATIVE S AMPLES
+To train our label-free IQA model, we construct diverse
+negative samples that cover both conventional image corruptions and AIGC-specific failure modes. We design two
+complementary degradation families, conventional and AIspecific, each instantiated along three dimensions: technical, aesthetic, and alignment quality.
+
+3.3. Model Training
+Our method contains two stages. First, we perform Qualityaware Instruction Tuning to adapt a pretrained MLLM into
+an aspect-aware backbone. Second, we train a lightweight
+scoring module, termed Quality Query Transformer (QQT),
+on top of the frozen aspect-aware embeddings. The
+schematic diagram of the proposed method is shown in
+Figure 3.
+
+For conventional degradations, technical negatives are synthesized via repeated JPEG compression and Gaussian noise.
+Aesthetic negatives are generated by applying controlled
+image-to-image editing, such as Qwen-Edit (Qwen, 2025)
+to high-quality images, inducing composition and color
+degradations while preserving the overall semantic content.
+Alignment negatives are constructed by shuffling imageprompt pairs, creating semantic mismatches.
+
+3.3.1. Q UALITY- AWARE I NSTRUCTION T UNING
+We adapt a pretrained MLLM into a quality-aware multimodal backbone that can explicitly reason about three
+perceptual aspects: technical quality, aesthetic quality, and
+text-image alignment. We formulate each aspect-specific
+assessment as an instruction-following task and fine-tune
+the MLLM to output a discrete label low or high. No
+human MOS annotations are required; instead, we construct
+supervision using one positive image and aspect-specific
+negatives generated via controlled degradations.
+
+For AI-specific degradations, technical negatives are obtained by generating images with explicitly degraded
+prompts that induce low-fidelity structures, or by prematurely decoding intermediate diffusion latents. Aesthetic
+negatives are produced via low-quality T2I generation, Stable Diffusion 1.1/1.4/1.5 (CompVis, 2022a;b; RunwayML,
+2022), and via prompt modifications that lead to degraded
+visual appearance. Alignment negatives are constructed by
+4
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+Prompt:
+Positive
+sample
+
+City skyline
+glowing under a
+thunderstorm sky.
+
+Visual Quality
+
+𝑧
+
+Frozen
+
+Transformer
+Layer
+Attention
+block
+
+𝑞
+
+𝑧
+
+𝑧
+
+Learnable
+query token
+
+𝑞
+
+𝑔
+𝑧
+
+=
+
+[𝑧
+
+;𝑧
+
+]
+
+Transformer
+Encoder
+
+Alignment
+Embedding
+
+Gated Visual-Alignment Representation
+
+High / low
+
+High / low
+Instruction
+Tuning
+
+High / low
+
+Quality-aware MLLM
+
+𝑞
+
+Positive
+sample
+
+Scoring
+head
+Visual
+
+Feed
+forward
+
+𝑧
+
+MLLM
+
+"Evaluate
+Text–Image
+Alignment"
+
+Pairwise Ranking Loss
+
+𝑔
+
+Aesthetic
+Embedding
+
+"Evaluate
+Aesthetic
+Quality"
+
+Quality Query Transformer
+
+Technical
+Embedding
+
+MLLM
+
+Alignment
+negative
+
+Gated Visual-Alignment Representation
+
+No human MOS required
+Trained with controllable supervision
+Single-image inference
+
+"Evaluate
+Technical/
+Aesthetic/
+Alignment
+Quality"
+
+Aesthetic
+negative
+
+Quality-aware MLLM
+
+Alignment Quality
+
+𝑧
+
+Technical
+negative
+
+Coarse
+Judgment
+
+"Evaluate
+Technical
+Quality"
+
+3.72
+
+Technical
+negative
+
+Alignment
+
+Aesthetic
+negative
+
+4.85
+
+>
+>
+>
+
+Alignment
+negative
+
+𝑞
+
+Quality Query Transformer
+
+Training Objective
+
+Figure 3. Overview of the proposed label-free visual and alignment quality scoring framework.
+
+Aspect-specific instructions and negatives. Given an
+AIGC image I and its generation prompt p, where positive
+samples I + and aspect-specific negatives are constructed
+following Sec. 3.2.3, we consider
+d ∈ {tec, aes, ali},
+
+Instruction-tuning objective. We format each query in
+the standard MLLM chat style. For aspect d, the input
+contains the embedded image and instrd ; for d = ali, the
+prompt is included as instructed, while for d ∈ {tec, aes} it
+is omitted. The target response is a single label token yd ∈
+{low, high}. Let xd and yd denote the input and output
+token sequences. We fine-tune the MLLM parameters θ by
+minimizing the autoregressive negative log-likelihood:
+"T
+#
+d
+
+
+X
+LSFT = −E(·,d)
+log pθ yd,t xd , yd,<t . (5)
+
+(3)
+
+corresponding to technical quality, aesthetic quality, and
+semantic alignment, respectively. For each aspect d, we design an instruction instrd that restricts the model to evaluate
+only that aspect while ignoring the others. For technical
+and aesthetic quality, the instruction does not include the
+prompt to avoid injecting semantic cues. For alignment, the
+instruction includes the prompt p as the reference text.
+
+After instruction tuning, we freeze the backbone parameters
+and use it as an aspect-aware feature extractor.
+
+For each positive image I + , we synthesize two visually
+degraded negatives
+
+3.3.2. G ATED V ISUAL -A LIGNMENT R EPRESENTATION
+
+−
+Itec
+,
+
+−
+Iaes
+,
+
+t=1
+
+Discrete low/high outputs are too coarse for fine-grained
+quality prediction. We therefore extract aspect-aware embeddings from the frozen backbone and build a compact
+representation tailored to two targets: visual quality and
+alignment quality.
+
+(4)
+
+where each negative is primarily degraded along its corresponding aspect. For alignment, instead of modifying the
+image, we construct a mismatched prompt p−
+ali (e.g., sampled from another instance) and form an alignment-negative
+pair (I + , p−
+ali ).
+
+Frozen aspect-aware embeddings. Let MLLMθ∗ be the
+instruction-tuned backbone with frozen parameters θ∗ . For
+each image I, we query the backbone with instrd and extract
+the last-layer hidden state of the final token of input as a
+continuous embedding. For technical and aesthetic aspects,
+we omit the prompt:
+
+ztec (I) = MLLMθ∗ I, instrtec ∈ Rh ,
+(6)
+
++
+
+We assign pseudo-labels such that I is labeled high for
+−
+−
+all three aspects, while Itec
+and Iaes
+are labeled low only
++ −
+for their primary aspects, and (I , pali ) is labeled low only
+for alignment. We do not impose supervision on the nonprimary aspects because they are not guaranteed by construction.
+5
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+
+zaes (I) = MLLMθ∗ I, instraes ∈ Rh ,
+
+where TE denotes the Transformer encoder. We compute
+scores by applying two MLP heads, fvis and fali , to the
+corresponding query-token outputs:
+
+
+q
+q
+ŝvis (I) = fvis hvis
+(I, p) ,
+ŝali (I, p) = fali hali
+(I, p) ,
+(15)
+q
+q
+where hvis
+(I, p) and hali
+(I, p) denote the encoded outputs
+of the visual-query token and alignment-query token in
+H3 (I, p), respectively.
+
+(7)
+
+and for alignment, we condition on the prompt:
+
+zali (I, p) = MLLMθ∗ I, p, instrali ∈ Rh ,
+
+(8)
+
+where h is the backbone hidden size. During training, we obtain alignment-negative embeddings using the mismatched
++ −
+prompt p−
+ali , i.e., zali (I , pali ).
+
+3.3.5. T RAINING O BJECTIVE
+
+Gated fusion for visual quality. Instead of predicting
+separate technical and aesthetic scores, we fuse their embeddings into a unified visual representation. Given ztec (I)
+and zaes (I), we compute two element-wise gates:
+
+We train the gated fusion module and QQT using marginbased ranking losses derived from label-free construction.
+For each positive pair (I + , p), we construct two visually de−
+−
+graded negatives Itec
+and Iaes
+, and one mismatched prompt
+gtec = σ(Wtec [ztec ; zaes ]) ,
+gaes = σ(Waes [ztec ; zaes ]) , p− for alignment:
+ali
+(9)
+
+−
+−
+T = I + , Itec
+, Iaes
+, p, p−
+(16)
+ali .
+where [·; ·] denotes concatenation and σ(·) is the sigmoid
+function. We modulate each branch and produce a fused
+All scores are predicted independently by QQT:
+embedding:
+−
+−
+ŝvis (I + ), ŝvis (Itec
+), ŝvis (Iaes
+), ŝali (I + , p), ŝali (I + , p−
+ali ).
+(17)
+z̃ = z ⊙ g ,
+z̃ = z ⊙ g ,
+(10)
+tec
+
+tec
+
+tec
+
+aes
+
+aes
+
+aes
+
+
+zvis (I) = ϕ [z̃tec ; z̃aes ] ∈ Rh ,
+
+−
+−
+Visual ranking loss. Since both Itec
+and Iaes
+are visually
+degraded, we supervise visual quality with two pairwise
+constraints (instead of hard-negative aggregation) to avoid
+gradient sparsity:
+h
+
+−
+Lvis = ET max 0, m − ŝvis (I + ) + ŝvis (Itec
+)
+i
+−
++ max 0, m − ŝvis (I + ) + ŝvis (Iaes
+) .
+(18)
+
+(11)
+
+where ⊙ is element-wise multiplication and ϕ(·) is a small
+MLP mapping R2h → Rh .
+3.3.3. V ISUAL - ALIGNMENT CONCATENATION .
+We concatenate the fused visual embedding and the alignment embedding to form the final content token for scoring:
+zva (I, p) = [zvis (I); zali (I, p)] ∈ R2h .
+
+(12)
+
+Alignment ranking loss. For alignment, we enforce that
+the positive image aligns better with its original prompt than
+with a mismatched prompt:
+h
+i
+Lali = ET max 0, m − ŝali (I + , p) + ŝali (I + , p−
+ali ) .
+(19)
+
+3.3.4. Q UALITY Q UERY T RANSFORMER
+We introduce a lightweight Transformer encoder on top of
+zva , termed Quality Query Transformer (QQT), to predict
+visual and alignment quality scores. QQT is trained with
+ranking supervision derived from label-free constructions,
+while keeping inference strictly single-image. It adopts
+two learnable query tokens that attend to the content token
+and extract task-specific evidence for visual and alignment
+scoring.
+
+Overall objective.
+
+L = Lvis + Lali .
+
+(20)
+
+3.3.6. I NFERENCE
+Given (I, p), we extract frozen embeddings ztec (I), zaes (I),
+and zali (I, p), fuse technical and aesthetic embeddings into
+zvis (I), and form zva (I, p). We then construct X3 (I, p) =
+[zva (I, p), qvis , qali ] and predict two scores:
+
+Given an input pair (I, p), we construct a 3-token sequence
+
+
+X3 (I, p) = zva (I, p), qvis , qali ∈ R3×2h ,
+
+The final loss is
+
+(13)
+
+where qvis , qali ∈ R2h are learnable query tokens shared
+across all samples. We project tokens and add learnable
+positional embeddings:
+
+ŝvis (I),
+
+ŝali (I, p).
+
+(21)
+
+Optionally, when a small labeled validation split is available,
+we apply a monotonic linear calibration to map raw scores
+to the MOS range. This post-hoc scaling does not affect
+rank-based evaluation.
+
+
+⊤
+H3 (I, p) = TE X3 (I, p)Wproj
++ Epos ∈ R3×dmodel ,
+(14)
+6
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+Table 2. Performance comparison of ELIQ with supervised, weak-supervised, and label-free methods on three AIGC benchmarks and two
+UGC benchmarks. The best-performing metric is highlighted in bold, and the second-best is underlined within each supervision setting.
+AIGC Datasets
+Methods
+
+Type
+
+UGC Datasets
+
+AGIQA-3K
+
+AIGCIQA2023
+
+AIGIQA-20K
+
+SRCC
+
+PLCC
+
+SRCC
+
+PLCC
+
+SRCC
+
+PLCC
+
+SRCC PLCC
+
+KonIQ-10k
+
+SRCC
+
+SPAQ
+PLCC
+
+BRISQUE (Mittal et al., 2012a)
+HyperIQA (Su et al., 2020)
+MANIQA (Yang et al., 2022)
+DBCNN (Zhang et al., 2020)
+MUSIQ (Ke et al., 2021)
+StairIQA (Sun et al., 2023)
+Q-Align (Wu et al., 2023)
+MA-AGIQA (Wang et al., 2024)
+
+handcraft
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+
+0.472
+0.850
+0.861
+0.826
+0.820
+0.834
+0.852
+0.893
+
+Supervised
+0.561 0.446
+0.904 0.822
+0.911 0.818
+0.890 0.807
+0.865 0.803
+0.893 0.808
+0.881 0.841
+0.927 0.853
+
+0.465
+0.852
+0.847
+0.829
+0.820
+0.832
+0.860
+0.856
+
+0.466
+0.816
+0.850
+0.805
+0.832
+0.789
+0.874
+0.864
+
+0.558
+0.832
+0.887
+0.848
+0.864
+0.842
+0.889
+0.905
+
+0.705
+0.904
+0.930
+0.844
+0.824
+0.920
+0.922
+0.933
+
+0.707
+0.915
+0.946
+0.862
+0.937
+0.936
+0.911
+0.948
+
+0.802
+0.915
+0.922
+0.909
+0.873
+0.923
+0.887
+0.927
+
+0.805
+0.918
+0.927
+0.927
+0.868
+0.929
+0.886
+0.932
+
+CONTRIQUE (Madhusudana et al., 2022)
+Re-IQA (Saha et al., 2023)
+CLIP-IQA+ (Wang et al., 2023a)
+ARNIQA (Agnolucci et al., 2024b)
+GRepQ-D (Srinath et al., 2024)
+Ours
+
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+
+Weak-supervised
+0.817 0.879 0.771
+0.811 0.874 0.769
+0.844 0.894 0.817
+0.803 0.881 0.754
+0.807 0.858 0.767
+0.876 0.911 0.837
+
+0.789
+0.789
+0.835
+0.764
+0.783
+0.851
+
+0.788
+0.787
+0.833
+0.778
+0.789
+0.856
+
+0.807
+0.811
+0.854
+0.792
+0.810
+0.883
+
+0.894
+0.914
+0.895
+0.869
+0.855
+0.912
+
+0.906
+0.923
+0.909
+0.883
+0.868
+0.924
+
+0.914
+0.918
+0.864
+0.904
+0.903
+0.915
+
+0.919
+0.925
+0.866
+0.909
+0.917
+0.925
+
+NIQE (Mittal et al., 2012b)
+ILNIQE (Zhang et al., 2015)
+CLIP-IQA (Wang et al., 2023a)
+MDFS (Ni et al., 2024)
+QualiCLIP (Agnolucci et al., 2025)
+GRepQ-Z (Srinath et al., 2024)
+DUBMA (Wang et al., 2025c)
+Ours
+
+handcraft
+handcraft
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+data-driven
+
+0.523
+0.609
+0.638
+0.672
+0.667
+0.613
+0.684
+0.801
+
+Label-free
+0.566 0.511
+0.655 0.594
+0.711 0.589
+0.676 0.659
+0.735 0.646
+0.734 0.602
+0.701 0.671
+0.827 0.767
+
+0.523
+0.611
+0.604
+0.667
+0.661
+0.612
+0.680
+0.781
+
+0.208
+0.335
+0.388
+0.691
+0.679
+0.624
+0.695
+0.786
+
+0.337
+0.455
+0.537
+0.695
+0.694
+0.634
+0.697
+0.803
+
+0.551
+0.453
+0.695
+0.733
+0.817
+0.768
+0.703
+0.818
+
+0.488
+0.467
+0.727
+0.737
+0.838
+0.784
+0.740
+0.831
+
+0.703
+0.719
+0.738
+0.741
+0.841
+0.823
+0.834
+0.842
+
+0.670
+0.654
+0.735
+0.754
+0.851
+0.839
+0.841
+0.851
+
+4. Experiments
+
+Spearman’s ρ (SRCC) and Pearson’s r (PLCC). More implementation details are provided in the Appendix.
+
+4.1. Datasets and Experimental Settings
+
+4.2. Performance Analysis
+
+We evaluate our method on three AIGC benchmarks,
+AGIQA-3K (Li et al., 2023), AIGCIQA2023 (Wang et al.,
+2023b), and AIGIQA-20K (Li et al., 2024a), as well as two
+UGC IQA benchmarks, KonIQ-10k (Hosu et al., 2020) and
+SPAQ (Fang et al., 2020). Details of dataset statistics and
+splits are provided in the Appendix.
+
+The proposed models are trained on the dataset introduced
+in Section 3.2. The results are summarized in Table 2 for
+visual quality on both AIGC and UGC benchmarks, and in
+Table 3 for alignment quality on AIGC benchmarks.
+4.2.1. V ISUAL Q UALITY
+
+We report performance in two settings. (i) Label-free. We
+directly use the trained model to produce visual and alignment scores without any MOS supervision, and report the
+correlation with human ratings. (ii) Weak-supervised. To
+measure how well our learned representations transfer to
+human opinion scores, we append a lightweight linear regressor on the QQT and fine-tune only this linear layer
+using a small portion of MOS-labeled data (20% for AIGC
+benchmarks and 30% for UGC benchmarks), while keeping
+all other modules frozen and evaluating on the remaining
+dataset.
+
+In the weak-supervised setting, our method achieves the best
+performance on all three AIGC benchmarks, with SRCC
+of 0.876 (AGIQA-3K), 0.837 (AIGCIQA2023), and 0.856
+(AIGIQA-20K), remaining competitive with fully supervised approaches. In the label-free setting, it consistently
+outperforms existing label-free and handcrafted baselines,
+reaching SRCC of 0.801, 0.767, and 0.786 on the same
+datasets without any target-domain MOS fine-tuning.
+On UGC benchmarks, our method attains SRCC of 0.912
+on KonIQ-10k and 0.915 on SPAQ using only 30% MOSlabeled data. In contrast, the strongest baseline Re-IQA
+requires 70% for slightly higher correlation. Without any
+MOS labels, our label-free variant still achieves SRCC of
+0.818 (KonIQ-10k) and 0.842 (SPAQ), demonstrating ro-
+
+All experiments are conducted using Qwen3-VL-8BInstruct as the MLLM backbone. We evaluate the consistency between predicted quality scores {ŷi }N
+i=1 and groundtruth scores {yi }N
+i=1 using two correlation coefficients:
+7
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+Table 3. The performance of the proposed ELIQ method and
+the compared supervised and label-free alignment quality. The
+best-performing metric is highlighted in bold.
+AGIQA-3k
+
+Methods
+
+SRCC
+
+AIGCIQA2023
+
+PLCC
+
+SRCC
+
+PLCC
+
+Weak-supervised
+CLIP (AAAI, 2023)
+0.597
+0.683
+CLIP-IQA+ (AAAI, 2023)
+0.704
+0.738
+ImageReward (NIPS, 2023)
+0.729
+0.786
+HPSv1 (ICCV, 2023)
+0.634
+0.700
+PickScore (NIPS, 2023)
+0.697
+0.763
+StairReward (TCSVT, 2023) 0.747
+0.852
+IPCE (CVPR, 2024)
+0.770
+0.872
+Ours
+0.789
+0.881
+
+0.617
+0.729
+0.749
+0.663
+0.716
+0.760
+0.797
+0.804
+
+0.623
+0.736
+0.759
+0.674
+0.734
+0.777
+0.788
+0.811
+
+Label-free
+CLIP (AAAI, 2023)
+0.428
+CLIP-IQA+ (AAAI, 2023)
+0.501
+ImageReward (NIPS, 2023)
+0.579
+HPSv1 (ICCV, 2023)
+0.562
+PickScore (NIPS, 2023)
+0.593
+Ours
+0.717
+
+0.463
+0.521
+0.589
+0.597
+0.626
+0.712
+
+0.474
+0.538
+0.609
+0.626
+0.652
+0.711
+
+0.450
+0.524
+0.607
+0.577
+0.622
+0.730
+
+Table 5. Ablation study of the negative degradation we used in
+ELIQ, where Tec, Aes, and Ali denote technical degradation, aesthetic degradation, and alignment degradation, respectively.
+
+Tec
+1
+2
+3
+4
+5
+6
+7
+
+Module
+Conv
+
+1
+2
+3
+
+PLCC
+
+SRCC
+
+PLCC
+
+✔
+✔
+
+0.796
+0.782
+0.801
+
+0.819
+0.805
+0.827
+
+0.713
+0.702
+0.717
+
+0.725
+0.718
+0.730
+
+Ali
+
+✔
+✔
+✔
+✔
+✔
+✔
+
+✔
+✔
+✔
+
+✔
+✔
+✔
+
+Alignment
+
+SRCC
+
+PLCC
+
+SRCC
+
+PLCC
+
+0.773
+0.769
+0.751
+0.789
+0.787
+0.796
+0.801
+
+0.794
+0.786
+0.772
+0.807
+0.804
+0.818
+0.827
+
+0.703
+0.700
+0.712
+0.710
+0.715
+0.714
+0.717
+
+0.712
+0.711
+0.723
+0.719
+0.727
+0.728
+0.730
+
+TABLE 5 further reveals that a single aspect is insufficient:
+Tec-only/Aes-only weakens visual prediction, while Ali-only
+improves alignment but hurts visual quality. Combining two
+aspects helps, and including Ali consistently benefits alignment; the full Tec+Aes+Ali setting performs best overall.
+
+Alignment
+
+SRCC
+
+✔
+✔
+
+Visual
+
+AI-spec
+
+Aes
+
+Visual
+
+and PLCC on visual quality and alignment, confirming their
+complementarity.
+
+Table 4. Ablation study of the negative degradation we used in
+ELIQ, where Conv and AI-spec denote Conventional degradation
+and AI-specific degradation, respectively.
+
+No.
+
+Module
+
+No.
+
+In addition, we include four supplementary ablation studies to validate key design choices of ELIQ, as shown in
+Appendix. Specifically, they examine (i) the necessity of
+quality-aware instruction tuning for adapting a pretrained
+MLLM to quality assessment, (ii) the effectiveness of the
+proposed visual representation that combines technical and
+aesthetic cues, (iii) the role of the Quality Query Transformer in enabling task-specific quality prediction from a
+single image, and (iv) the impact of the proposed label-free
+training objective with multiple ranking constraints.
+
+bust and scalable quality prediction and effective transfer
+from AIGC to real-world User-Generated Content.
+4.2.2. A LIGNMENT Q UALITY
+
+5. Conclusion
+
+Table 3 presents prompt-image alignment performance on
+AGIQA-3K and AIGCIQA2023. In the weak-supervised
+setting, our method achieves the highest correlation on both
+datasets, while in the label-free setting, it still reaches SRCC
+of 0.717 on AGIQA-3K and 0.712 on AIGCIQA2023 without using any human annotations, consistently outperforming all label-free baselines.
+
+Overall, our findings indicate that MLLM-derived quality priors offer a practical and scalable alternative to traditional MOS-based supervision for AIGC quality assessment. Rather than treating quality evaluation as a static,
+human-anchored problem, our framework reframes it as a
+model-driven process that can continuously adapt to evolving generative capabilities. This shift opens the door to
+sustainable quality assessment pipelines that keep pace with
+rapid advances in generative models, without incurring repeated annotation costs.
+
+4.3. Ablation Study
+We conduct a set of ablations to validate key components
+of ELIQ, reporting SRCC and PLCC for both visual quality
+and alignment quality. We first validated the effectiveness
+of the degradation of negative samples.
+
+Impact Statement
+
+TABLE 4 shows that conventional negatives are more effective than AI-specific ones when used alone, indicating
+conventional distortion priors provide stable and transferable supervision. Using both together yields the best SRCC
+
+This paper presents work whose goal is to advance the field
+of Machine Learning. There are many potential societal
+consequences of our work, none which we feel must be
+specifically highlighted here.
+8
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+References
+
+CompVis. Stable diffusion v1-1 (compvis/stable-diffusionv1-1).
+https://huggingface.co/CompVis/
+stable-diffusion-v1-1, 2022a. Hugging Face
+model card, accessed 2026-01-02.
+
+Agnolucci, L., Galteri, L., and Bertini, M. Quality-aware
+image-text alignment for real-world image quality assessment. CoRR, abs/2403.11176, 2024a. URL https:
+//doi.org/10.48550/arXiv.2403.11176.
+
+CompVis. Stable diffusion v1-4 (compvis/stable-diffusionv1-4).
+https://huggingface.co/CompVis/
+stable-diffusion-v1-4, 2022b. Hugging Face
+model card, accessed 2026-01-02.
+
+Agnolucci, L., Galteri, L., Bertini, M., and Del Bimbo, A.
+Arniqa: Learning distortion manifold for image quality
+assessment. In 2024 IEEE/CVF Winter Conference on
+Applications of Computer Vision (WACV), pp. 188–197,
+Jan 2024b. doi: 10.1109/WACV57701.2024.00026.
+
+Fang, Y., Zhu, H., Zhang, Y., Li, J., and Ma, K. Subjective
+and objective quality assessment of smartphone photography. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), pp.
+1313–1322, 2020.
+
+Agnolucci, L., Galteri, L., and Bertini, M. Quality-aware
+image-text alignment for opinion-unaware image quality
+assessment, 2025. URL https://arxiv.org/abs/
+2403.11176.
+
+Fu, J., Zhou, W., Jiang, Q., Liu, H., and Zhai, G. Visionlanguage consistency guided multi-modal prompt learning for blind ai generated image quality assessment. IEEE
+Signal Processing Letters, 31:1820–1824, 2024. ISSN
+1558-2361. doi: 10.1109/LSP.2024.3420083.
+
+Babu, N. C., Kannan, V., and Soundararajan, R. No reference opinion unaware quality assessment of authentically
+distorted images. In 2023 IEEE/CVF Winter Conference
+on Applications of Computer Vision (WACV), pp. 2458–
+2467, Jan 2023. doi: 10.1109/WACV56688.2023.00249.
+
+Han, S., Fan, H., Fu, J., Li, L., Li, T., Cui, J., Wang, Y.,
+Tai, Y., Sun, J., Guo, C., and Li, C. Evalmuse-40k: A
+reliable and fine-grained benchmark with comprehensive
+human annotations for text-to-image generation model
+evaluation. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR),
+2024.
+
+Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z.,
+Deng, L., Ding, W., Gao, C., Ge, C., Ge, W., Guo, Z.,
+Huang, Q., Huang, J., Huang, F., Hui, B., Jiang, S., Li,
+Z., Li, M., Li, M., Li, K., Lin, Z., Lin, J., Liu, X., Liu,
+J., Liu, C., Liu, Y., Liu, D., Liu, S., Lu, D., Luo, R., Lv,
+C., Men, R., Meng, L., Ren, X., Ren, X., Song, S., Sun,
+Y., Tang, J., Tu, J., Wan, J., Wang, P., Wang, P., Wang,
+Q., Wang, Y., Xie, T., Xu, Y., Xu, H., Xu, J., Yang, Z.,
+Yang, M., Yang, J., Yang, A., Yu, B., Zhang, F., Zhang,
+H., Zhang, X., Zheng, B., Zhong, H., Zhou, J., Zhou, F.,
+Zhou, J., Zhu, Y., and Zhu, K. Qwen3-vl technical report.
+arXiv preprint arXiv:2511.21631, 2025.
+
+Hinder, F., Vaquet, V., Brinkrolf, J., and Hammer, B.
+Model-based explanations of concept drift. Neurocomputing, 555:126640, 2023.
+ISSN 0925-2312.
+doi:
+https://doi.org/10.1016/j.neucom.2023.126640.
+URL
+https://www.sciencedirect.com/
+science/article/pii/S0925231223007634.
+
+Cha, J., Ren, M., Singh, K. K., Zhang, H., Hold-Geoffroy,
+Y., Yoon, S., Jung, H., Yoon, J. S., and Baek, S.
+Text2relight: Creative portrait relighting with text guidance. Proceedings of the AAAI Conference on Artificial
+Intelligence, 39(2):1980–1988, Apr. 2025. doi: 10.1609/
+aaai.v39i2.32194. URL https://ojs.aaai.org/
+index.php/AAAI/article/view/32194.
+
+Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. In Proceedings of the 34th International
+Conference on Neural Information Processing Systems,
+NIPS ’20, Red Hook, NY, USA, 2020. Curran Associates
+Inc. ISBN 9781713829546.
+Hosu, V., Lin, H., Sziranyi, T., and Saupe, D. Koniq10k: An ecologically valid database for deep learning
+of blind image quality assessment. IEEE Transactions on
+Image Processing, 29:4041–4056, 2020. ISSN 19410042. doi: 10.1109/tip.2020.2967829. URL http:
+//dx.doi.org/10.1109/TIP.2020.2967829.
+
+Chen, J., YU, J., GE, C., Yao, L., Xie, E., Wang, Z., Kwok,
+J., Luo, P., Lu, H., and Li, Z. Pixart-$\alpha$: Fast
+training of diffusion transformer for photorealistic text-toimage synthesis. In The Twelfth International Conference
+on Learning Representations, 2024a. URL https://
+openreview.net/forum?id=eAKmQPe3m1.
+
+Huang, K., Duan, C., Sun, K., Xie, E., Li, Z., and Liu,
+X. T2i-compbench++: An enhanced and comprehensive benchmark for compositional text-to-image generation. IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 47(5):3563–3579, 2025. doi:
+10.1109/TPAMI.2025.3531907.
+
+Chen, Z., Sun, W., Wu, H., Zhang, Z., Jia, J., Ji, Z., Sun,
+F., Jui, S., Min, X., Zhai, G., and Zhang, W. Exploring
+the naturalness of ai-generated images, 2024b. URL
+https://arxiv.org/abs/2312.05476.
+9
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+Ke, J., Wang, Q., Wang, Y., Milanfar, P., and Yang, F.
+Musiq: Multi-scale image quality transformer. In 2021
+IEEE/CVF International Conference on Computer Vision
+(ICCV), pp. 5128–5137, 2021. doi: 10.1109/ICCV48922.
+2021.00510.
+
+multi-scale deep feature statistics. IEEE Transactions on
+Multimedia, 26:10211–10224, 2024. ISSN 1941-0077.
+doi: 10.1109/TMM.2024.3405729.
+Peebles, W. and Xie, S. Scalable diffusion models with
+transformers. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 4195–4205,
+2023.
+
+Labs, B. F., Batifol, S., Blattmann, A., Boesel, F., Consul,
+S., Diagne, C., Dockhorn, T., English, J., English, Z.,
+Esser, P., Kulal, S., Lacey, K., Levi, Y., Li, C., Lorenz,
+D., Müller, J., Podell, D., Rombach, R., Saini, H., Sauer,
+A., and Smith, L. Flux.1 kontext: Flow matching for incontext image generation and editing in latent space, 2025.
+URL https://arxiv.org/abs/2506.15742.
+
+Peng, F., Fu, H., Ming, A., Wang, C., Ma, H., He, S.,
+Dou, Z., and Chen, S. AIGC Image Quality Assessment via Image-Prompt Correspondence . In 2024
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition Workshops (CVPRW), pp. 6432–6441,
+Los Alamitos, CA, USA, June 2024. IEEE Computer
+Society. doi: 10.1109/CVPRW63382.2024.00644. URL
+https://doi.ieeecomputersociety.org/
+10.1109/CVPRW63382.2024.00644.
+
+Li, C., Zhang, Z., Wu, H., Sun, W., Min, X., Liu, X., Zhai,
+G., and Lin, W. Agiqa-3k: An open database for aigenerated image quality assessment. IEEE Transactions
+on Circuits and Systems for Video Technology, pp. 1–1,
+2023. doi: 10.1109/TCSVT.2023.3319020.
+
+Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn, T., Müller, J., Penna, J., and Rombach, R. SDXL:
+Improving latent diffusion models for high-resolution
+image synthesis. In The Twelfth International Conference on Learning Representations, 2024. URL https:
+//openreview.net/forum?id=di52zR8xgf.
+
+Li, C., Kou, T., Gao, Y., Cao, Y., Sun, W., Zhang, Z.,
+Zhou, Y., Zhang, Z., Zhang, W., Wu, H., Liu, X., Min,
+X., and Zhai, G. Aigiqa-20k: A large database for aigenerated image quality assessment. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops, pp. 6327–6336,
+June 2024a.
+
+Qwen. Qwen-image-edit (qwen/qwen-image-edit). https:
+//huggingface.co/Qwen/Qwen-Image-Edit,
+2025. Model card, accessed 2026-01-02.
+
+Li, Y., Chen, P., Zhu, H., Ding, K., Li, L., and Wang, S.
+Deep shape-texture statistics for completely blind image quality evaluation. ACM Trans. Multimedia Comput. Commun. Appl., 20(12), November 2024b. ISSN
+1551-6857. doi: 10.1145/3694977. URL https:
+//doi.org/10.1145/3694977.
+
+Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and
+Ommer, B. High-resolution image synthesis with latent
+diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp.
+10684–10695, 2022.
+
+Li, Y., Wu, S., Sun, W., Zhang, Z., Zhu, Y., Zhang, Z., Duan,
+H., Min, X., and Zhai, G. Aghi-qa: A subjective-aligned
+dataset and metric for ai-generated human images, 2025.
+URL https://arxiv.org/abs/2504.21308.
+
+Roy, S., Mitra, S., Biswas, S., and Soundararajan, R. Test
+time adaptation for blind image quality assessment. In
+Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pp. 16742–16751, 2023.
+
+Madhusudana, P. C., Birkbeck, N., Wang, Y., Adsumilli,
+B., and Bovik, A. C. Image quality assessment using
+contrastive learning. IEEE Transactions on Image Processing, 31:4149–4161, 2022. ISSN 1941-0042. doi:
+10.1109/TIP.2022.3181496.
+
+RunwayML. Stable diffusion v1-5 (runwayml/stablediffusion-v1-5;
+mirrored).
+https://
+huggingface.co/stable-diffusion-v1-5/
+stable-diffusion-v1-5, 2022. Hugging Face
+model card (mirror of deprecated runwayml repository),
+accessed 2026-01-02.
+
+Mittal, A., Moorthy, A. K., and Bovik, A. C. No-reference
+image quality assessment in the spatial domain. IEEE
+Transactions on image processing, 21(12):4695–4708,
+2012a.
+
+Saha, A., Mishra, S., and Bovik, A. C. Re-iqa: Unsupervised
+learning for image quality assessment in the wild. In 2023
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 5846–5855, June 2023. doi:
+10.1109/CVPR52729.2023.00566.
+
+Mittal, A., Soundararajan, R., and Bovik, A. C. Making a
+“completely blind” image quality analyzer. IEEE Signal
+processing letters, 20(3):209–212, 2012b.
+
+Shi, J., Gao, P., and Qin, J. Transformer-based no-reference
+image quality assessment via supervised contrastive learning. Proceedings of the AAAI Conference on Artificial
+
+Ni, Z., Liu, Y., Ding, K., Yang, W., Wang, H., and Wang, S.
+Opinion-unaware blind image quality assessment using
+10
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+Intelligence, 38(5):4829–4837, Mar. 2024. doi: 10.1609/
+aaai.v38i5.28285. URL https://ojs.aaai.org/
+index.php/AAAI/article/view/28285.
+
+York, NY, USA, 2024. Association for Computing
+Machinery. ISBN 9798400706868. doi: 10.1145/
+3664647.3681471. URL https://doi.org/10.
+1145/3664647.3681471.
+
+Shukla, A., Upadhyay, A., Bhugra, S., and Sharma, M.
+Opinion unaware image quality assessment via adversarial convolutional variational autoencoder. In 2024
+IEEE/CVF Winter Conference on Applications of Computer Vision (WACV), pp. 2142–2152, Jan 2024. doi:
+10.1109/WACV57701.2024.00215.
+
+Wang, W., Gao, Z., Gu, L., Pu, H., Cui, L., Wei, X., Liu, Z.,
+Jing, L., Ye, S., Shao, J., et al. Internvl3.5: Advancing
+open-source multimodal models in versatility, reasoning,
+and efficiency. arXiv preprint arXiv:2508.18265, 2025b.
+
+Song, J., Meng, C., and Ermon, S. Denoising diffusion
+implicit models. In International Conference on Learning
+Representations, 2021. URL https://openreview.
+net/forum?id=St1giarCHLP.
+Srinath, S., Mitra, S., Rao, S., and Soundararajan, R. Learning generalizable perceptual representations for dataefficient no-reference image quality assessment. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV), pp. 22–31, January
+2024.
+
+Wang, Z., Liu, X., Yan, J., Wen, J., Wang, W., and Huang,
+C. Deep opinion-unaware blind image quality assessment by learning and adapting from multiple annotators.
+In Proceedings of the Thirty-Fourth International Joint
+Conference on Artificial Intelligence, IJCAI-25, pp. 2036–
+2044, 2025c.
+Wu, C., Li, J., Zhou, J., Lin, J., Gao, K., Yan, K., ming Yin,
+S., Bai, S., Xu, X., Chen, Y., Chen, Y., Tang, Z., Zhang,
+Z., Wang, Z., Yang, A., Yu, B., Cheng, C., Liu, D., Li,
+D., Zhang, H., Meng, H., Wei, H., Ni, J., Chen, K., Cao,
+K., Peng, L., Qu, L., Wu, M., Wang, P., Yu, S., Wen, T.,
+Feng, W., Xu, X., Wang, Y., Zhang, Y., Zhu, Y., Wu, Y.,
+Cai, Y., and Liu, Z. Qwen-image technical report, 2025.
+URL https://arxiv.org/abs/2508.02324.
+
+Su, S., Yan, Q., Zhu, Y., Zhang, C., Ge, X., Sun, J.,
+and Zhang, Y. Blindly assess image quality in the
+wild guided by a self-adaptive hyper network. In 2020
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 3664–3673, June 2020. doi:
+10.1109/CVPR42600.2020.00372.
+
+Wu, H., Zhang, Z., Zhang, W., Chen, C., Liao, L., Li, C.,
+Gao, Y., Wang, A., Zhang, E., Sun, W., et al. Q-align:
+Teaching lmms for visual scoring via discrete text-defined
+levels. arXiv preprint arXiv:2312.17090, 2023.
+
+Sun, W., Min, X., Tu, D., Ma, S., and Zhai, G. Blind
+quality assessment for in-the-wild images via hierarchical
+feature fusion and iterative mixed database training. IEEE
+Journal of Selected Topics in Signal Processing, 2023.
+
+Yang, S., Wu, T., Shi, S., Lao, S., Gong, Y., Cao, M., Wang,
+J., and Yang, Y. MANIQA: Multi-dimension Attention
+Network for No-Reference Image Quality Assessment
+. In 2022 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition Workshops (CVPRW), pp. 1190–
+1199, Los Alamitos, CA, USA, June 2022. IEEE Computer Society. doi: 10.1109/CVPRW56347.2022.00126.
+URL
+https://doi.ieeecomputersociety.
+org/10.1109/CVPRW56347.2022.00126.
+
+Wang, J., Chan, K. C., and Loy, C. C. Exploring clip for
+assessing the look and feel of images. Proceedings of
+the AAAI Conference on Artificial Intelligence, 37(2):
+2555–2563, Jun. 2023a. doi: 10.1609/aaai.v37i2.25353.
+Wang, J., Duan, H., Liu, J., Chen, S., Min, X., and Zhai,
+G. Aigciqa2023: A large-scale image quality assessment
+database for ai generated images: from the perspectives
+of quality, authenticity and correspondence. In CAAI
+International Conference on Artificial Intelligence, pp.
+46–57. Springer, 2023b.
+
+Ying, Z., Niu, H., Gupta, P., Mahajan, D., Ghadiyaram,
+D., and Bovik, A. From patches to pictures (paq-2-piq):
+Mapping the perceptual space of picture quality, 2019.
+URL https://arxiv.org/abs/1912.10088.
+
+Wang, J., Duan, H., Zhao, Y., Wang, J., Zhai, G., and
+Min, X. Lmm4lmm: Benchmarking and evaluating largemultimodal image generation with lmms. In Proceedings
+of the IEEE/CVF International Conference on Computer
+Vision (ICCV), pp. 17312–17323, October 2025a.
+
+Zhang, L., Zhang, L., and Bovik, A. C. A feature-enriched
+completely blind image quality evaluator. IEEE Transactions on Image Processing, 24(8):2579–2591, Aug 2015.
+ISSN 1941-0042. doi: 10.1109/TIP.2015.2426416.
+
+Wang, P., Sun, W., Zhang, Z., Jia, J., Jiang, Y., Zhang,
+Z., Min, X., and Zhai, G. Large multi-modality model
+assisted ai-generated image quality assessment. In
+Proceedings of the 32nd ACM International Conference on Multimedia, MM ’24, pp. 7803–7812, New
+
+Zhang, W., Ma, K., Yan, J., Deng, D., and Wang, Z. Blind
+image quality assessment using a deep bilinear convolutional neural network. IEEE Transactions on Circuits and
+Systems for Video Technology, 30(1):36–47, 2020. doi:
+10.1109/TCSVT.2018.2886771.
+11
+
+ELIQ: A Label-Free Framework for Quality Assessment of Evolving AI-Generated Images
+
+Zhang, W., Zhai, G., Wei, Y., Yang, X., and Ma, K. Blind
+image quality assessment via vision-language correspondence: A multitask learning perspective. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 14071–14081, June 2023.
+Zhang, Z., Kou, T., Wang, S., Li, C., Sun, W., Wang, W.,
+Li, X., Wang, Z., Cao, X., Min, X., Liu, X., and Zhai,
+G. Q-eval-100k: Evaluating visual quality and alignment
+level for text-to-vision content. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), 2025a.
+Zhang, Z., Li, X., Sun, W., Zhang, Z., Li, Y., Liu, X., and
+Zhai, G. Leveraging multimodal large language models for joint discrete and continuous evaluation in textto-image alignment. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition
+(CVPR) Workshops, pp. 977–986, June 2025b.
+Zhao, K., Yuan, K., Sun, M., Li, M., and Wen, X. Qualityaware pretrained models for blind image quality assessment. In 2023 IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), pp. 22302–22313, June
+2023. doi: 10.1109/CVPR52729.2023.02136.
+
+12
+
+

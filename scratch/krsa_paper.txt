@@ -1,0 +1,1306 @@
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+2799
+
+Image Quality Assessment: Exploring Joint
+Degradation Effect of Deep Network Features via
+Kernel Representation Similarity Analysis
+Xingran Liao , Xuekai Wei , Mingliang Zhou , Senior Member, IEEE, Hau-San Wong , Member, IEEE,
+and Sam Kwong , Fellow, IEEE
+
+Abstract—Typically, deep network-based full-reference image
+quality assessment (FR-IQA) models compare deep features from
+reference and distorted images pairwise, overlooking correlations
+among features from the same source. We propose a dual-branch
+framework to capture the joint degradation effect among deep
+network features. The first branch uses kernel representation similarity analysis (KRSA), which compares feature self-similarity
+matrices via the mean absolute error (MAE). The second branch
+conducts pairwise comparisons via the MAE, and a training-free
+logarithmic summation of both branches derives the final score.
+Our approach contributes in three ways. First, integrating the
+KRSA with pairwise comparisons enhances the model’s perceptual awareness. Second, our approach is adaptable to diverse
+network architectures. Third, our approach can guide perceptual
+image enhancement. Extensive experiments on 10 datasets validate
+our method’s efficacy, demonstrating that perceptual deformation
+widely exists in diverse IQA scenarios and that measuring the joint
+degradation effect can discern appealing content deformations.
+Index Terms—Image quality assessment, kernel representation
+similarity analysis, perceptual evaluation, deep neural network.
+
+I. INTRODUCTION
+VALUATING image quality is crucial for various imageprocessing tasks. Subjective assessments, though insightful, are time-consuming, costly, and susceptible to individual biases. Hence, developing objective image quality
+assessment (IQA) models for effective and efficient evaluations
+
+E
+
+Received 8 April 2024; revised 27 September 2024; accepted 31 December
+2024. Date of publication 8 January 2025; date of current version 6 March 2025.
+This work was supported in part by the National Natural Science Foundation
+of China under Grant 62176027, in part by Chongqing Talent under Grant
+cstc2024ycjh-bgzxm0082, in part by the Joint Equipment Pre Research and Key
+Fund Project of the Ministry of Education under Grant 8091B012207, in part by
+Central University Operating Expenses under Grant 2024CDJGF-044, and in
+part by the Research Grants Council of the Hong Kong Special Administration
+Region under Grant CityU 11206622. Recommended for acceptance by L.
+Zhang. (Corresponding authors: Mingliang Zhou; Sam Kwong.)
+Xingran Liao and Hau-San Wong are with the Department of Computer
+Science, City University of Hong Kong, Kowloon, Hong Kong (e-mail: xingrliao2-c@my.cityu.edu.hk; cshswong@cityu.edu.hk).
+Xuekai Wei and Mingliang Zhou are with the College of Computer
+Science, Chongqing University, Chongqing 400044, China (e-mail: xuekaiwei2-c@my.cityu.edu.hk; mingliangzhou@cqu.edu.cn).
+Sam Kwong is with Computational Intelligence, Lingnan University, Hong
+Kong (e-mail: samkwong@ln.edu.hk).
+The codes are available at https://github.com/Buka-Xing/Dual-BranchImage-Quality-Assessment.
+Digital Object Identifier 10.1109/TPAMI.2025.3527004
+
+is urgently needed. Based on the availability of the reference
+image, IQA models are categorized into full-reference IQA
+(FR-IQA), reduced-reference IQA (RR-IQA), and nonreference
+IQA (NR-IQA) models. Numerous outstanding works [1], [2],
+[3] have shown the effectiveness of deep learning in building
+advanced IQA models, demonstrating that deep neural networks
+can approach complex human visual systems (HVSs).
+FR-IQA models are generally believed to be less applicable than NR-IQA models because of their reliance on pristine
+images. However, recent studies [1], [5], [6] have shown that
+FR-IQA models can guide perceptual image enhancement, a task
+many NR-IQA models fail to handle [7]. Specifically, enhancing
+the output scores of NR-IQA models on distorted images does
+not yield appealing results, as shown by Zhang et al. [7], which
+diminishes the interpretability of NR-IQA outputs. As such,
+FR-IQA models remain crucial, and we pursue building FRIQA models that unify perceptual evaluation and enhancement.
+Typical FR-IQA models comprise three components: feature
+decomposition, feature comparison, and perceptual score pooling. Deep network-based FR-IQA models often employ deep
+learning for feature decomposition and score pooling. However, the exploration of how to perceptually compare deep network features is rather limited. Existing methods often employ
+pairwise comparisons for features from heterogeneous image
+sources (reference and distorted images) and linearly combine
+difference scores, overlooking the self-correlation among deep
+network features. We visualize features from the ResNet [4]
+network in Fig. 1, where different channels of the deep network
+capture diverse feature segmentations that are highly correlated.
+These features collectively describe the perceptual information
+of the original image. When distortions occur, deep features are
+contaminated to varying degrees, altering their correlation states.
+Pairwise comparisons and linear combinations of deep features
+may overlook intricate joint effects, as shown in Fig. 1(c)
+and (f), where direct summation of all channel feature maps visually emphasizes the very high-frequency parts (outline, shape,
+and structure) but ignores some image details.
+To perceptually combine the degradation of diverse feature
+segments and match the highly nonlinear HVS, some studies [8], [9] have applied either multilayer perceptron (MLP)
+or weighted summation techniques in the score pooling part,
+which are often trained via subjective opinion scores. However,
+
+0162-8828 © 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and similar technologies.
+Personal use is permitted, but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2800
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+TABLE I
+SPEARMAN RANK-ORDER COEFFICIENT (SRCC) RESULTS OF THE CROSS-DATASET EXPERIMENTS
+
+Fig. 1. Visualization of the pretrained ResNet network [4] features in the first
+stage. Brighter parts indicate stronger activation responses. In channel feature
+maps, the upper part is more related to the image shape, outline, and structure,
+whereas the lower part is more related to image details, such as texture.
+
+we find that disparities exist across diverse IQA datasets, with
+notable gaps observed in the classic Tamper image database
+2013 (TID2013) [10], the Konstanz artificially distorted image
+quality database (KADID-10k) [11], and the perceptual image
+processing algorithm (PIPAL) dataset [12], as illustrated in
+Table I. We find that training models on either the TID2013 [10]
+or KADID-10k [11] can yield high test performance on each
+other; however, excessive training on PIPAL [12] leads to
+poor performance on the TID2013 [10] and KADID-10k [11]
+datasets. This dilemma arises from the diverse subjective scoring
+systems and distortion types. Specifically, PIPAL [12] adopts
+the Elo rating system, whose score range is [1000, 1400], and
+significantly differs from the classic 10-score or 5-score Swiss
+system used by TID2013 [10] and KADID-10k [11]. Moreover,
+the PIPAL [12] dataset contains distortions from diverse image processing algorithms, such as the generative adversarial
+network-based (GAN-based) image denoising algorithm, leading to gaps between the synthetic distortion-based TID2013 [10]
+and KADID-10k [11].
+We aim to bridge the gaps between diverse IQA scenarios and unify perceptual evaluation and enhancement because
+we find that models with MLP-pooled scores usually fail to
+guide the enhancement, raising interpretability concerns. Our
+solution is to quantify joint degradation among deep network
+features and integrate this with conventional pairwise comparison strategies, as the latter benefits the model in guiding
+perceptual enhancement and interpreting synthetic distortion
+
+types. We adopt a dual-branch framework. The first branch,
+the feature self-similarity comparison branch, compares deep
+network features via kernel representation similarity analysis
+(KRSA), which forms self-similarity matrices [14], [15], and
+then uses the mean absolute error (MAE) to compare them.
+The second branch, the feature pairwise comparison branch,
+directly compares channelwise weighted features between the
+reference and distorted images via the MAE. Finally, two branch
+scores are fused through training-free logarithmic summation.
+Our approach significantly differs from existing FR-IQA models
+in terms of comparison. Specifically, we fix the network as a
+pretrained deep image classification network and do not use
+data-driven pooling functions. In conclusion, our work has three
+contributions.
+r We explore the joint degradation effect of deep network
+features and combine feature self-similarity and feature
+pairwise comparisons to construct a deep network-based
+FR-IQA model. Our model can interpret complex distortion types across several IQA scenarios and discern appealing content deformations. We also reveal connections
+between the dual-branch framework and the HVS.
+r The proposed method exhibits impressive quality score
+prediction capability across 10 IQA datasets, including synthetic distortion-based, screen-content, GAN-based
+image enhancement algorithms, modern image compression algorithms, and texture-synthesized IQA datasets.
+Moreover, our approach is backbone independent and can
+adapt to ResNet [4], SqueezeNet [16], MobileNet [17] and
+EfficientNet [18], indicating that our approach can serve
+as a general methodology for comparing deep network
+features.
+r Our models are also differentiable and can guide perceptual
+image enhancement, further demonstrating the superior
+perceptual relevance and score interpretability of our approaches.
+The remaining parts are structured as follows. Section II
+reviews diverse IQA scenarios, several deep network-based IQA
+models, and the introduction of the KRSA technique. Section III
+formulates the main problem in building the deep network-based
+FR-IQA and introduces how we construct our dual-branch IQA
+model. We also analyse the connections of our models to the
+HVS and other state-of-the-art models. Section IV presents the
+experimental results, including the results of the quality prediction experiment, the correct classification experiment, and the
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+perceptual image enhancement experiment. Section V concludes
+our work.
+II. RELATED WORK
+A. Various Quality Assessment Scenarios
+The development of FR-IQA models has never detached
+from practical quality assessment scenarios. Classic FR-IQA
+databases, including the TID2013 [10], Laboratory for Image
+& Video Engineering (LIVE) [19], Categorical Image Quality
+(CSIQ) [20], and KADID-10k [11], seek to explore HVS behaviour when confronted with information loss during image
+transmissions. These datasets contain images affected by diverse types of synthetic distortion, which are generated within
+a controlled laboratory environment. Subjective scores are assigned to these images via the Swiss scoring system, whose
+range usually lies within a fixed interval. Recent research has
+emphasized quality assessment issues on images generated by
+various image processing algorithms. The PIPAL dataset [12] involves distortion types generated by modern image enhancement
+algorithms, such as GAN-based image denoising and superresolution. The quality assessment database for superresolution algorithms (QADS) [21] mainly contains images from diverse superresolution algorithms. The synthesis texture quality database
+(SynTEX) [22] and the texture quality database (TQD) [1]
+focus on evaluating images from texture synthesis algorithms.
+Compared with synthetic distortion, evaluating images in these
+algorithm-based datasets is more complicated, as deformations
+introduced by these algorithms do not necessarily lead to perceptual quality degradation. The demand for IQA measures also
+extends to specific scenarios, such as screen-content IQA [23],
+[24], compressed image IQA [25], [26], the multiview 3D-CG
+IQA [27], and light-field IQA [28], [29], posing challenges for
+FR-IQA development.
+
+2801
+
+introduced in FR-IQA models, as seen in AHIQ [8], which
+is used to introduce attention maps on deep features from the
+ResNet network [4] and predict scores through a multilayer
+perceptron (MLP). The top-down approach IQA (TOPIQ) [34]
+also introduces attention using the deep-stage features of the
+residue network and pools the scores via the MLP. The graphrepresented image distribution similarity (GRIDS) index [35]
+measures the perceptual distance by assessing the disparities
+between deep feature distribution patterns under a graph-based
+representation. In contrast, the deep Wasserstein distance (DeepWSD) [6] directly compares deep network features via the
+Wasserstein distance without requiring additional training.
+Deep network-based models are also prevalent in current
+NR-IQA models, and a key challenge is network training. Approaches such as weakly supervised or self-supervised learning
+are commonly used [36], [37], [38], [39]. These strategies train
+the network with either pseudo-labeled or unlabeled data to capture robust features independent of subjective evaluation scores.
+The trained networks are subsequently used to extract image features and regress the final quality scores. DeepFL [36] trains its
+encoder with pseudo-labeled data based on the outputs of several
+FR-IQA models, and network training focuses on matching the
+FR-IQA score distribution. CONTRIQUE [37] treats network
+training as a distortion classification task, aiming to classify
+synthetic and authentic distortions. Re-IQA [38] employs a
+multiscale feature extraction strategy to train quality-aware and
+content-aware encoders. ARNIQA [39] uses a self-supervised
+learning approach to maximize the similarity between images
+distorted to the same degree, aiming at matching the complex
+manifold of diverse distortion types. EffNet-2C-MLSP [40]
+aims to evaluate images on a very high-resolution scale and
+build NR-IQA models with EfficientNet [18]. These NR-IQA
+models all require training an additional score pooling function
+to regress subjective scores on testing datasets, which differs
+greatly from our proposed model.
+
+B. Deep Network-Based IQA Models
+Pioneering deep network-based FR-IQA models such as the
+deep similarity index (DeepSIM) [30] use a pretrained VGG
+architecture for feature decomposition and the local similarity
+index for comparing deep network features. The deep quality
+assessment (DeepQA) model [31] applies the VGG-like network
+to predict sensitivity maps and regress subjective scores. The
+weighted average deep image quality measure (WaDIQaM) [9]
+evaluates image quality through patches of deep network features, whereas the learned perceptual image patch similarity
+(LPIPS) [32] applies the weighted euclidean distance to compare
+deep features from various network architectures. The deep
+structure and texture similarity index (DISTS) [1] compares
+structural and textural information in VGG network features via
+the global similarity index, whereas its enhanced form, adaptive
+DISTS (ADISTS) [3], compares deep features via the local
+patch-based similarity index. Prashnani et al. [33] modelled the
+FR-IQA task as a distance measurement problem, introducing
+the perceptual image-error assessment through pairwise preference (PieAPP) [33], which uses a VGG-like architecture and
+compares features patchwise. Recently, transformers have been
+
+C. Kernel Representation Similarity Analysis
+The self-similarity branch in our dual-branch IQA (DBIQA) is
+inspired by representation similarity analysis, a robust analytical
+technique that has been applied in various scientific areas, such
+as neuroscience [14], natural language processing [41], [42], and
+machine learning [15], [43]. It first investigates how information
+is organized within a system then compares the collaborative
+state of patterns between diverse systems. Technically, the similarity of every two patterns within a system is recorded in a
+similarity matrix, offering a holistic view of the overall system.
+Differences between these matrices are subsequently measured
+to quantify distinctions between systems [14]. The core issue of
+the KRSA lies in the measure used to compare the similarity of
+two patterns. The basic linear measure, inner products, leads to
+a well-known Gram matrix that is effective in tackling texture
+synthesis tasks [44] and image retrieval tasks [45]. However,
+the HVS is supposed to be a highly nonlinear system, which
+means that the simple inner product may not provide perceptual
+similarity comparisons. As such, we extend typical RSA into
+the kernel method-based form, where the nonlinear kernel is
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2802
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+Fig. 2. Two kinds of deformation samples are obtained from the datasets of Li et al. [26], SynTEX [22] and TQD [1]. (a) is the image from the high-fidelity
+generative image compression (HiFiC) algorithm, and (c) is the image from the texture resampling algorithm. (b) and (d) are images contaminated by classic JPEG
+compression and colour diffusion distortions, respectively. (e) and (f) are two texture synthesis algorithms resulting from SynTEX [22]. (g) is the image from the
+factorized entropy model with the mean square error (FactMSE) image compression algorithm. ↑’ indicates that the larger the subjective score is, the better the
+perceptual quality. All the subjective scores are obtained directly from the IQA datasets.
+
+applied to compare deep network features perceptually to discern appealing content deformations. Moreover, the nonlinear
+kernel here is realized by building high-dimensional projections
+via a neural network rather than by predefined kernel functions,
+which ensures that our model is adaptive to diverse network
+architectures and suitable for quality assessment tasks.
+III. METHODOLOGY
+A. Problem Formulation
+Given the distorted image X, the reference image Y , and the
+deep network φ(• ; θ) with weights θ, the main task in building
+deep network-based FR-IQA models can be formalized as
+arg max Corr(f (D(φ(X; θ), φ(Y ; θ))), M OS),
+{θ,f,D}
+
+(1)
+
+where Corr represents correlation indices such as the Pearson
+correlation coefficient (PLCC) and M OS represents the mean
+opinion score (MOS). D is the deep feature comparison strategy,
+and f is the score pooling function. φ(X; θ) and φ(Y ; θ) are deep
+representations of images X and Y , respectively.
+Our work focuses on the perceptual comparison strategy D,
+so we fix the network φ(• ; θ) as pretrained deep networks on
+ImageNet and do not use the MLP. The design of D is based
+on two observations. First, in many recent challenging IQA
+datasets, the contents of distorted images are usually deformed
+and not completely aligned with the reference. Nevertheless, the
+HVS can discern appealing deformations. Typical examples in
+Fig. 2(a) and (c) illustrate that the HVS sometimes prefers deformations induced by some generative algorithms over typical
+distortion types such as JPEG compression or colour diffusion.
+However, content deformations do not always result in visual
+
+preference, as shown in Fig. 2(f) and (h), where global or local
+content warping leads to perceptual degradation. Specifically,
+the HiFiC compression algorithm will generate image content
+during compression decoding, and the HVS is less sensitive
+to the generated rough image textures shown in Fig. 2(a).
+Hence, such deformed content will not lead to drastic perceptual degradation. However, in Fig. 2(c), the HiFiC algorithm
+generates a warped human face that leads to drastic perceptual
+degradation. Establishing a definitive criterion for how the HVS
+discerns appealing deformations may be overcomplicated, but
+we find that this property is based on insensitivity to content
+misalignment. This idea drives us to use the KRSA because the
+comparison of the similarity matrix is less sensitive to content
+location variations. The remaining issue is to find a kernel that
+can perceptually compare deep network features and discern
+appealing deformations. Second, according to the free-energy
+principle [46], [47], the HVS can infer pristine images from
+distorted images. This property is also mimicked by many NRIQA models [48], [49]. For FR-IQA models, with the presence
+of a reference image, this property translates into the models’
+differentiability to guide the perceptual image enhancement. The
+KRSA comparison alone cannot achieve this objective because
+it is insensitive to content locations. Hence, it must be combined
+with typical feature pairwise comparisons.
+B. The Dual-Branch Comparison FR-IQA
+We unify the feature self-similarity and feature pairwise comparisons via a dual-branch framework, as shown in Fig. 3(a).
+Pretrained deep image classification networks φ(·) are utilized
+to obtain the deep network features of the reference image
+Y ∈ RH×W ×3 and the distorted image X ∈ RH×W ×3 , where H
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+2803
+
+Fig. 3. The overall structure of the dual branch comparison FR-IQA model. Details of the feature self-similarity comparison and feature pairwise comparison
+branches are presented below.
+
+and W are the height and width of the input images, respectively,
+and 3 denotes the RGB channels. We select the deep network
+features from the shallow network stage to the deep network
+stage for comparison, where ‘stages’ refer to features before
+pooling layers. These features are denoted as {φl (Y )}l=0...N ∈
+RHl ×Wl ×Cl and {φl (X)}l=0...N ∈ RHl ×Wl ×Cl , where l denotes the l-th network stage, l = 0 represents the images from
+the pixel domain, and the total number of network stages is N .
+The feature self-similarity comparison branch. The core of
+this branch is based on the KRSA, which comprises two parts:
+1) uses nonlinear projection ψ(·) to transform the original data
+m, n ∈ Rb×d into latent high-dimensional space ψ(m), ψ(n) ∈
+Rb×h , where b is the batch number of the data and h, d is the
+dimension with h > d. 2) Compare the inner product between
+the projected data and build a similarity matrix D with the
+elements,
+Dij = ψ(m)i , ψ(n)j ,
+
+(2)
+
+where i, j are the i-th and j-th data of ψ(m), ψ(n), respectively.
+In traditional machine learning, the two parts are unified via
+predefined kernel functions [50] to avoid explicit computing
+ψ(·) and lower the computational burden. Herein, we choose
+to explicitly build the high-dimensional projection ψ(·) that
+suits the IQA task for two reasons. First, selecting the specific
+kernel function fixes the projection spaces of the deep network
+features, and it is difficult to explain whether a kernel function is
+optimal for the IQA task. Second, building the projection ψ(·)
+via neural networks also offers adaptivity to compare diverse
+
+network features. We find that even a simple convolution layer
+plus nonlinear activation can project features into the perceptual
+high-dimensional space across various network architectures.
+The overall structure of the self-similarity branch is
+shown in Fig. 3(b), where the raw deep network features
+{φl (Y )}l=1...N and {φl (X)}l=1...N are projected into the latent
+high-dimensional space with channel dimensions Cl > Cl . We
+use one convolutional layer with ReLU activations to form
+the projection function ψ(·). This projection is shared when
+processing both the reference image and the distorted image,
+and the projected dimension of ψ(·) is set as the largest channel
+dimension among all the deep network stages. For example, the
+projected channel dimension for VGG [51] is set to 512, and the
+dimension for ResNet [4] is set to 2048. The augmented inner
+product is subsequently used to compare the channel correlation
+of the high-dimensional features ψ(φl (Y )) and ψ(φl (Y )) in
+the l-th stage to form the similarity matrices DY l and DX l ,
+respectively, whose elements are computed as:
+DYijl = (aψ(φl (Y ))i , ψ(φl (Y ))j  + b)c ,
+
+(3)
+
+l
+DXij
+= (aψ(φl (X))i , ψ(φl (X))j  + b)c ,
+
+(4)
+
+where ψ(φl (Y ))i , ψ(φl (Y ))j are the i-th and j-th channels of
+the projected features ψ(φl (Y )), respectively. a, b, c are three
+constants for further fine-tuning the measure to be perceptual in
+high-dimensional space. Finally, the MAE is used to yield the
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2804
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+Fig. 4. Visualization of the high-dimensional projection of the self-similarity comparison branch. The left part of the feature is directly from the second stage of
+the VGG [51] network, and the right part shows channel maps of high-dimensional projected features in the self-similarity comparison branch. We also visualized
+the similarity matrix of the corresponding stages.
+
+final score of this branch, that is,
+
+l
+s1 =
+|DYijl − DXij
+|.
+l
+
+of s1 and s2 :
+(5)
+
+i,j
+
+The feature pairwise comparison branch. This branch directly
+compares the channel-weighted deep features without dimension projection. The overall structure is shown in Fig. 3(c). We
+apply the convolution block attention module [52] to introduce
+channelwise weights. Specifically, there are two subbranches in
+the module, which start with average pooling and max pooling.
+Two convolutional layers squeeze the channels of the deep
+network features and expand them to the original size to generate
+raw weights, which are summed and then processed by the
+sigmoid function. Finally, two weighted features are compared
+by the MAE to yield the second-branch score, which is
+s2 =
+
+
+
+|Sigmoid(χl (Y )) × φl (Y ) − Sigmoid(χl (X))
+
+l
+
+× φl (X)|,
+
+(6)
+
+where χl (·) denotes the convolutional block attention module [52] in the l-th stage and where Sigmoid(∗) is the sigmoid
+function. Compared with the feature self-similarity comparison branch, the feature pairwise comparison branch offers two
+key benefits. First, incorporating this branch enhances FR-IQA
+performance on classic datasets such as TID2013 [10] and
+KADID-10k [11]. We suspect that the reason is that synthetic
+distortions are directly applied to original reference images,
+which contaminate content without altering locations. Second,
+this branch enables the model to guide perceptual image enhancement, strongly enhancing the interpretability of the output
+scores. Finally, the model output is the logarithmic summation
+
+s = log(s1 + s2 + 1),
+
+(7)
+
+where plus one ensures the nonnegativity of the output. As such,
+our model is also the complete distance measure, whose range
+lies at [0, +∞), and a larger score results in worse perceptual
+quality.
+C. Connection to the HVS and Existing Works
+Connections to the HVS. The dual-branch framework is
+closely related to the HVS. The self-similarity comparison
+branch measures the joint degradation of deep network features,
+emulating the neuron interaction observed in the HVS. According to Anderson et al. [53], the processing of incoming signals
+activates multiple brain regions. When the input changes, the
+state of collaborative activations also changes, potentially triggering the brain’s decision-making. Similarly, the self-similarity
+branch compares similarity matrices of projected features, emulating the comparison of activation state variations because
+the high-dimensional projection divides features into various
+subparts, including texture and structure parts, as shown in Fig. 4,
+and distortions also change the similarity matrix of these segments. This property is shared by diverse network architectures,
+serving as the foundation for the dual-branch framework being
+backbone independent. As such, with the learned projection
+kernel for the IQA task, the self-similarity comparison branch
+can discriminate perceptual-appealing deformations.
+Connections to existing models. Existing models typically
+conduct pairwise feature comparisons, either in patch form or
+attention-weighted form, but do not consider the joint degradation of multiple features. Two works that concern feature
+self-similarity comparisons are the deep self-similarity (DSD)
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+IQA [54] and the deep distance correlation index (DeepDC) [55].
+DSD models [54] focus on cross-scale self-similarity, which first
+downsamples the inputs and then computes the differences in the
+Gram matrix at diverse resolution scales. These differences are
+also set as perceptual quality indicators. DeepDC [55] builds a
+similarity matrix with the mean square error (MSE) and further
+processes the matrices via a double centralization process [56].
+In other words, both DeepDC [55] and DSD [54] utilize linear
+measures to construct a feature self-similarity matrix, which
+has an inferior ability to classify perceptually appealing deformations. Moreover, these measures cannot guide perceptual
+image enhancement. Our model unifies feature self-similarity
+and feature pairwise comparisons, enjoying advanced perceptual
+relevance in both quality assessment and image enhancement
+tasks.
+IV. EXPERIMENT
+A. Training Details
+DBIQA training concentrates on the high-dimensional projection of the self-similarity comparison branch and the channelwise attention of the pairwise comparison branch. Following
+the pairwise ranking training strategy of Prashnani et al. [33], our
+goal is to train the model to distinguish perceptually appealing
+images within image pairs. The training loss is designed to match
+the distribution of the preference probability, which is
+arg min 1 − P LCC(h(f (A, R; Θ), f (B, R; Θ)), pAB ), (8)
+Θ
+
+where A = {A1 , . . ., AT }, B = {B1 , . . ., BT } are the two distorted image batches in the image pairs. T is the batch number.
+R is the reference image batch. f (·, ·; Θ) is our DBIQA model
+with parameter Θ, and h is the Bradley–Terry (BT) sigmoid
+model [57], which transforms the scores of f (A, R; Θ) and
+f (B, R; Θ) into the predicted preference probability of A over
+B. Its definition is as follows:
+1
+.
+(9)
+h(sA , sB ) =
+1 + exp(sA − sB )
+pAB is the ground-truth human-labeled preference rate of A over
+B. Note that for DBIQA, a smaller score indicates better percepsB . P LCC is the
+tual quality; therefore, in (8), we expect sA
+batch Pearson correlation coefficient (PLCC). We do not use the
+MSE because we hope the model can distinguish better-quality
+images rather than precisely predict the preference rate of A over
+B. We also do not use other similarity indices such as the SRCC
+because these indices require sorting the score batch, causing
+nonconvergence and instability in training. The training set is
+selected from the Prashnani dataset et al. [33] as we found that
+PieAPP [33] trained on this dataset could achieve satisfactory
+score prediction results on the TID2013 [10], KADID-10k [11],
+and PIPAL [12] datasets. The batch size is set to 20, and we
+use the adaptive moment estimation (Adam) optimizer with
+an initial step size of 1 × 10−4 . All the images are resized to
+224 × 224 spatial size, and the overall number of training epochs
+is set to 200. During training, the weights of the deep network
+backbone are fixed, and we randomly pick five specific network
+architectures in the VGG [51], ResNet [4], SqueezeNet [16],
+
+2805
+
+MobileNet [17], and EfficientNet [18] families. Detailed information on these network architectures is summarized in Table II.
+B. Experimental Settings
+Three experiments are involved in this section: the perceptual quality prediction, the correct classification (CC) evaluation [58], and the image-to-image enhancement test [5]. The
+quality prediction experiment assesses whether the FR-IQA
+model can predict perceptual quality scores, and we use the
+PLCC and the SRCC to quantify the results. The four-parameter
+regression model is used before computing the PLCC, whose
+definition is as follows:
+D̄ = (β1 − β2 )/(1 + exp(−(D − β3 )/|β4 |) + β2 ),
+
+(10)
+
+where D is the raw score and where D̄ is the regressed score.
+{βi }i=1,...4 are four parameters. The CC experiment [58] evaluates whether the model outputs are interpretable and has two
+subexperiments: 1) classifying perceptually different/similar
+image pairs and 2) classifying perceptually better/worse image
+pairs. We follow the criteria of Lucas et al. [58] in collecting
+the image pairs required on specific IQA datasets. Two indices
+are utilized to quantify the results: the area under the receiver
+operating characteristic curve (AUC) and the correct classification accuracy (ACC), both of which are larger, the better.
+The image-to-image enhancement test [5] examines whether the
+FR-IQA model can effectively guide perceptual image enhancement, which solves the following optimization problem:
+arg min F R-IQA(X, Y ),
+X
+
+(11)
+
+where X and Y are the distorted image and the reference image,
+respectively. All the FR-IQA models are transformed into being
+negatively related to the perceptual quality. The well-defined
+FR-IQA model should enhance the perceptual quality of X
+towards Y .
+We tested DBIQA on 10 IQA datasets, including five datasets
+that contained a wide range of distortion types (TID2013 [10],
+LIVE [19], the CSIQ [20], KADID-10k [11], and the PIPAL [12]
+dataset) and five IQA datasets related to specific content quality
+evaluations (the SynTEX [22], the TQD [1], the QADS [21], the
+Li et al. [26], and the screen-content image quality assessment
+database (SCID) [24]). Details of these datasets are presented in
+Table III. The PIPAL dataset [12] is officially split into training
+and test datasets. The PLCC and the SRCC of the test set can
+only be verified on the following website: https://codalab.lisn.
+upsaclay.fr/competitions/1567.
+We compare DBIQA with several FR-IQA milestones according to their feature domain. The pixel domain models
+include the peak-signal-to-noise ratio (PSNR), the structure
+similarity index measure (SSIM) [59], and the multiscale SSIM
+(MS-SSIM) [60]. The frequency domain models include visual
+information fidelity (VIF) [61], FSIM [13], and complex wavelet
+structural similarity (CW-SSIM) [62]. The deep feature domain
+models are PieAPP [33], LPIPS [32], DISTS [1], perceptual
+loss [65], projected distribution loss (PDL) [64], WaDIQaM [9],
+ADISTS [3], AHIQ [8], DeepWSD [6], DSD [54], DeepDC [55],
+TOPIQ [34], and GRIDS [35]. All the models are tested with
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2806
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+TABLE II
+DETAILED INFORMATION OF NETWORK ARCHITECTURES IN THE MANUSCRIPT
+
+TABLE III
+DETAILED INFORMATION ABOUT THE 10 TEST IQA DATASETS
+
+their open-source settings and on the entire datasets. For
+LPIPS [32], we utilize the VGG architecture. The WaDIQaM [9]
+and AHIQ [8] datasets are officially trained on the TID2013 [10]
+and PIPAL training [12] datasets. TOPIQ [34] and GRIDS [35]
+are trained on the KADID-10k [11] dataset. DISTS [1] is also
+trained on the KADID-10k [11] dataset and then fine-tuned on
+the TQD [1] dataset. We do not retrain all these models to ensure
+that all results are reproducible.
+C. Quality Prediction Results
+1) Results With the VGG Architecture: We present the quality
+prediction results of DBIQA with the VGG architecture in
+Tables IV and V. According to Table IV, disparities are evident
+between the TID2013 [10] and PIPAL training sets [12]. Models
+such as WaDIQaM [9] and AHIQ [8] are trained on each of
+these datasets, but neither exhibit transferable score prediction
+capabilities. In contrast, models such as WaDIQaM [9] and
+TOPIQ [34] are trained on the TID2013 [10] and KADID10k [11] datasets and can perform well on each other’s training
+sets, indicating that these sets are compatible. Nevertheless, all
+these models perform poorly on the SynTEX [22] and TQD [1]
+datasets and are inferior on the Li et al. [26] and QADS [21]
+datasets, as shown in Table V. This observation suggests that
+neither the patch comparison approach nor attention maps can
+bridge gaps between synthetic distortion-based datasets and
+datasets containing perceptual deformations. This argument is
+further demonstrated by DISTS [1] and ADISTS [3]. DISTS [1]
+
+demonstrates robustness in evaluating texture-synthesized images because it compares the global means of VGG features, making it less sensitive to content locations. In contrast,
+ADISTS [3] conducts comparisons at the patch level, resulting
+in degraded performance on SynTEX [22] and TQD [1] because
+the patch-based operation is sensitive to content locations. Moreover, neither DISTS [1] nor ADISTS [3] performs competitively
+on TID2013 [10] and the PIPAL training set [12], indicating
+that the mean comparison cannot bridge the gap either. Notably,
+PieAPP [33] performs competitively across the PIPAL [12]
+training, the QADS [21], and several classic IQA datasets, even
+though it is blind to them. This observation prompted us to
+train DBIQA in the same way as PieAPP [33]. However, the
+performance of PieAPP [33] degrades on the PIPAL test set, as
+shown in Table VI, possibly because of its patchwise comparison
+approach. In conclusion, to enhance the robustness of the FRIQA model, unifying an advanced comparison approach that is
+less sensitive to content misalignment with the existing pairwise
+feature comparison approach is crucial. By comparing VGG features in the dual-branch framework, our DBIQA model displays
+superior performance in Tables IV, V, and VI. It ranks among
+the top three best models across 10 out of 11 datasets, which is
+unmatched by any other model such as DISTS [1] (3 out of 11),
+DeepWSD [6] (3 out of 11), and TOPIQ [34] (5 out of 11) etc..
+These results strongly demonstrate that our approach can mimic
+HVS behaviours in broader scenarios, which is attributed
+mainly to the combination of two powerful feature comparison
+strategies.
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+2807
+
+TABLE IV
+QUALITY PREDICTION RESULTS ON FIVE LARGE-SCALE DATASETS
+
+2) Results With Diverse Network Architectures: Various network architectures, including ResNet [4], SqueezeNet [16],
+MobileNet [17], and EfficientNet [18], have superior score
+prediction capabilities within dual-branch frameworks. The results in Tables VI and VII demonstrate their high perceptual
+relevance, which can be attributed to three reasons. First, pretrained networks can capture perceptual features that are vital
+in perceptual quality evaluations. For example, the shallow
+layers of convolutional networks typically capture low-level
+perceptual features such as image outlines and structures, which
+are also vulnerable to distortions. Second, convolutional neural
+networks share a common property: deeper stage features have
+broader receptive fields, whereas shallow stage features have
+restricted receptive fields. Comparing features from shallow to
+deeper stages mimics the multiscale evaluation mechanism in
+HVS, which is also demonstrated in many IQA works [20],
+[60]. Third, feature self-similarity is prevalent in these network
+features. The dual-branch framework enables perceptual comparison by measuring joint degradation among deep network
+features, thereby demonstrating independence from the specific
+network backbones.
+Beyond backbone independence, two important findings must
+be clarified. First, the quality assessment results are independent of the network complexity and classification accuracy.
+For example, SqueezeNet [16] and MobileNet [17] are networks with lighter structures and lower classification accuracies
+than ResNet [4]. Nevertheless, DBIQA with these two network
+architectures can yield higher PLCC and SRCC results than
+ResNet [4] on TID2013 [10], CSIQ [20], and the PIPAL [12]
+training sets, as shown in Table VII. These results also indicate
+
+that features that lead to higher classification accuracy may not
+absolutely benefit the quality assessment task. Tailoring these
+network features for IQA is necessary. Second, the success of
+the dual-branch framework cannot be attributed to the similarity
+matrix encoding texture or style information. As indicated by
+Wang et al. [66], the deep feature similarity matrix of networks
+other than VGG does not have a specific perceptual meaning,
+and the Gram matrix of the ResNet feature [4] cannot address
+texture synthesis or the style transfer task. The core reason is
+the insensitivity to content location variations. Robustness to
+perceptual deformations can be realized only based on such
+properties. As such, by incorporating the kernel method-based
+projection, our proposed DBIQA can adapt well to diverse
+network architectures.
+D. The CC Experiment
+Three large-scale datasets are selected for the CC experiment:
+the TID2013 [10], KADID-10k [11], and PIPAL [12] training
+sets. We present the AUC and ACC results in Table VIII. It
+is clear that DBIQA with the VGG [51] architecture has advanced performance in classifying perceptually different/similar
+and perceptually better/worse image pairs across these largescale datasets. In contrast, although the WaDIQaM [9] and the
+AHIQ [8] perform the best on each training set, their capabilities
+are not transferable to datasets that they are blind. We suspect that
+the reason is that these models are trained via MSE loss to regress
+the absolute values of the MOS scores. However, the diverse
+scoring systems across datasets pose a significant challenge,
+especially for the TID2013 [10] and the PIPAL training sets [12].
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2808
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+TABLE V
+QUALITY PREDICTION RESULTS ON FIVE SPECIFIC CONTENT DATASETS
+
+TABLE VI
+QUALITY PREDICTION RESULTS ON PIPAL(TEST) DATASETS
+
+enables the model to focus more on distinguishing perceptual
+preferences between diverse distorted images.
+The strong ability to classify perceptually different/similar
+and perceptually better/worse images is also shared by diverse
+network architectures, as shown in Table VIII. On the three
+datasets, DBIQA outperforms many existing deep networkbased FR-IQA models, and among all DBIQA variants, we
+find that the VGG [51] form and the EfficientNet [18] form
+are the two best architectures. Moreover, DeepWSD [6] is also
+a model with robust score interpretability on the TID2013 [10]
+and KADID-10k [11] datasets. Considering that DeepWSD [6]
+does not require training, we believe that it conducts the best
+pairwise feature comparisons when the contents are aligned.
+However, its performance drastically decreases when content
+deformations occur, as shown on the PIPAL [12] training set,
+indicating that it mimics HVS behaviour only in a restricted
+scenario. Moreover, although DISTS [1] and ADISTS [3] are
+less sensitive to content misalignment, they are still less able
+to discriminate perceptually better/worse content deformations
+on the PIPAL training set [12] than many DBIQA variants
+are. In conclusion, our proposed DBIQA enjoys clear score
+interpretability in classifying perceptually appealing images.
+
+E. Image-to-Image Enhancement Test
+As such, the absolute value regression performs poorly in classifying perceptually different/similar and better/worse image
+pairs. This also motivated us to train models with the pairwise
+ranking training strategy [33] and the batch PLCC loss, which
+
+The enhancement tests include PieAPP [33], LPIPS [32],
+DISTS [1], ADISTS [3], PDL [64], WaDIQaM [9], AHIQ [8],
+DeepWSD [6], DSD [54], DeepDC [55], TOPIQ [34],
+GRIDS [35], and our DBIQA in addressing (11). We select the
+white image as the initial image and show the enhancement
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+2809
+
+TABLE VII
+QUALITY PREDICTION RESULTS ON TEN DATASETS
+
+TABLE VIII
+THE CC EXPERIMENT [58] RESULTS ON THREE DATASETS
+
+results in Fig. 5. We found that PieAPP [33], WaDIQaM [9],
+AHIQ [8], TOPIQ [34], and GRIDS [35] failed to guide enhancement, raising concerns about the perceptual relevance of
+their output scores. We suspect that this is attributed primarily
+to the patch comparison strategy or the attention maps they
+employ, which intentionally discards information from reference
+images to predict perceptual qualities but hinders perceptual
+enhancement. Moreover, DeepDC [55] and DSD [54] cannot
+guide enhancement because the single self-similarity comparison ignores the content location information. As such, utilizing
+the full information of the reference is vital for both quality
+assessment and perceptual enhancement. Second, we observe
+that ADISTS [3] struggles to recover the full image information.
+
+This happens as the similarity index compression score ranges
+from [0,1], and minimizing ADISTS [3] requires selecting a
+proper step size and a rational step decay strategy. Moreover,
+DISTS [1] introduces wave-like artefacts in the enhanced results,
+which do not align with the texture of the original reference.
+We suspect that this artefact was also caused by the similarity index used in DISTS [1]. As such, we choose to use the
+MSE in deep feature comparison. However, the MSE introduces
+noise into the reconstructed images, as shown in LPIPS [32]
+and VGG-based DBIQA, possibly because the pretrained deep
+network features contain nonrobust features that are recovered
+by the MSE [67]. According to Andrew et al. [67], deep network
+features usually contain robust and nonrobust parts. The robust
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2810
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+Fig. 5. Image-to-image enhancement results with the white initial image. The third row is the enlarged part for specific FR-IQA models, the names of which are
+presented below.
+
+part contains semantic meanings that we can comprehend, but
+the nonrobust part is visually similar to noise. In our experiments, both these features are recovered via the MSE, a strong
+pixelwise reconstruction measure. In contrast, DeepWSD [6]
+can reconstruct perceptually appealing images without introducing artefacts, but its poor performance on several modern
+algorithm-based datasets still indicates that it fails to mimic
+HVS behaviour in a broader range. Beyond VGG [51], other
+network architectures also show strong potential in perceptual
+enhancement as shown in Fig. 5. We can see that DBIQA with
+ResNet [4], MobileNet [17] and EfficientNet [18] can recover
+perceptual-appealing images with less noise, possibly because
+their features contain fewer nonrobust parts [67]. On the other
+hand, the results of SqueezeNet [16] introduce much more noise
+than VGG [51] does, which also indicates that the design of
+deep neural networks should consider eliminating nonrobust
+features [67].
+We also conduct subjective experiments for enhanced images
+to determine the best FR-IQA models in guiding perceptual
+image enhancement. The test settings and environment obey
+the ITURBT.500 regulations [68]. We hired 20 participants,
+including 10 males and 10 females aged 21–35, with an average
+age of 24 years. None of them had professional knowledge of
+image processing or were aware of the test’s purpose. Moreover,
+several FR-IQA models, including ADISTS [3], DeepWSD [6],
+
+TABLE IX
+5-SCALE IMPAIRMENT LEVEL
+
+DISTS [1], LPIPS [32], PDL [64], and DBIQA variants based
+on VGG, SqueezeNet, ResNet, and EfficientNet, were evaluated.
+The subjective evaluation followed the double-stimulus impairment scale (DSIS) method [68], where participants first viewed
+pristine reference images, followed by the FR-IQA enhanced
+images. They then rated the impairment level of the enhanced
+images on a 5-point scale, as described in Table IX.
+All the enhanced images start from a pure white image and
+then are enhanced towards the reference images. As such, any
+distortion in the final enhanced results is caused by the FR-IQA
+models. We select 100 reference images from the PIPAL [12],
+SynTEX [22], and TQD [1] datasets, and the reference image
+samples are shown in Fig. 6. Among them, 50 images are more
+related to image structures, and the rest are more related to
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+Fig. 6. Reference image samples of the subjective image-to-image enhancement test. The upper samples are more related to image structures, and the lower
+samples are more related to image textures.
+
+Fig. 7.
+
+Mean subjective scores of diverse FR-IQA enhanced images.
+
+image textures. Consequently, the subjective test involved 1,000
+images split into two groups, each lasting approximately one and
+a half hours. The final average subjective scores for each FR-IQA
+model are shown in Fig. 7. We find that DeepWSD [6] yields the
+highest scores, followed closely by our ResNet-based DBIQA.
+The VGG-based DBIQA performed similarly to LPIPS [32] and
+DISTS [1], all of which introduced minor noise or wave-like
+artefacts that some testers reported they were noticing but did
+not significantly impact visual quality. In contrast, PDL [64]
+and ADISTS [3] introduced more severe distortions, greatly
+diminishing visual quality.
+F. Comparison Between Several NR-IQA Models
+Several NR-IQA models have shown powerful perceptual
+awareness in recent years. We compare these NR-IQA models
+with our DBIQA model to further emphasize our contributions. Five NR-IQA models are selected: DeepFL [36], CONTRIQUE [37], Re-IQA [38], ARNIQA [39], and Effnet-2CMLSP [40]. Note that retraining the score pooling function
+is essential for all NR-IQA models each time the model is
+tested, but our DBIQA is tested on the entire datasets without prior knowledge. As such, our comparison includes two
+parts: cross-dataset comparison and retraining comparison. For
+the cross-dataset comparison, NR-IQA models use their open
+source pooling functions and are tested on the entire datasets.
+For the retraining comparison, datasets are split into 60% for
+training, 20% for validation, and 20% for testing. To ensure
+reliability, we repeated the tests 10 times and reported the median
+PLCC and SRCC scores on the 20% testing set as the final
+NR-IQA performance. For EffNet-2C-MLSP [40], the author
+
+2811
+
+did not release the source code, so we reimplemented it and
+reported only the retraining results.
+The results are presented in Table X. We observe that the
+cross-dataset performance of all these NR-IQA models is unsatisfactory because of the varying scoring systems across different datasets. These models also struggle to assess perceptual
+deformations accurately on datasets such as PIPAL [12], SynTEX [22], and TQD [1]. Even after retraining, most NR-IQA
+models still perform less effectively than our proposed DBIQA.
+The only two NR-IQA models that are comparable after retraining are CONTRIQUE [37] (the top three on 7 datasets out of
+10) and ARNIQA [39] (the top three on 6 datasets out of 10),
+whereas our DBIQA is even better and ranks among the top three
+on 8 out of 10 datasets. These results further demonstrate that our
+proposed DBIQA offers a perceptual feature comparison strategy capable of bridging gaps between synthetic distortion-based
+datasets and those with perceptual deformations. Moreover,
+DBIQA can guide perceptual image enhancement, a task that
+most NR-IQA models struggle with [7]. Herein, we do not
+intend to diminish the success of these NR-IQA models. The
+key point we want to emphasize is that perceptual deformations
+are prevalent across diverse IQA scenarios. These models have
+not fully addressed the challenge of bridging the gap between
+synthetic distortion-based datasets and those with perceptual
+deformations, which is the core contribution of our proposed
+DBIQA.
+G. Computational Complexity Analysis
+We list the memory access cost (MAC), the parameter size,
+and the runtime of the diverse deep network-based FR-IQA
+model on the PIPAL [12] training dataset in Table XI. Each
+model compares the reference and distorted image pairs one
+by one without using batch computation, and the total number
+of image pairs is 23200. We do this to magnify the time consumption for each model. The test environment used an Intel(R)
+Core(TM) i7-10700 CPU and a GTX3060 GPU. For the DBIQA
+series, three indices are related to the network complexity and
+the high-dimensional projection. We can see that all DBIQA
+variants enjoy acceptable computational complexity compared
+with PieAPP [33] or AHIQ [8], which are too time-consuming
+and incapable of being applied in large-scale industrial tasks.
+Considering the overall performance in terms of quality assessment, CC, perceptual enhancement, and computational complexity, we recommend DBIQA with the VGG [51] architecture
+as the default form.
+H. Ablation Study
+Structure of the dual-branch framework. The first ablation
+study explored four issues in the dual-branch framework: 1)
+the impact of having only a pairwise comparison branch, 2) the
+impact of having only a self-similarity branch, 3) the influence of
+removing high-dimensional projections, and 4) the influence of
+removing channelwise attention. We present the SRCC results
+on the ten datasets in Table XII, and we present the ablation
+results on DBIQA with the VGG [51] architecture. All the
+models are still trained on the PieAPP datasets [33]. We find
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2812
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+TABLE X
+QUALITY PREDICTION RESULTS OF SEVERAL NR-IQA MODELS
+
+TABLE XI
+MACS, PARAMETER SIZE, AND RUNNING TIME ON THE PIPAL [12] DATASETS COMPARISON
+
+TABLE XII
+ABLATION STUDY ON THE DESIGN OF DUAL-BRANCH FRAMEWORK
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+2813
+
+TABLE XIII
+ABLATION STUDY ON THE TRAINING DATASETS OF THE DUAL-BRANCH FRAMEWORK
+
+TABLE XIV
+DIFFERENT BASIC MEASURES USED TO BUILD THE DUAL-BRANCH COMPARISON FRAMEWORK
+
+that the single pairwise comparison branch alone cannot deliver
+perceptual evaluation results on the TQD [1] and QADS [21]
+datasets because this comparison strategy is sensitive to content
+deformations. Moreover, with only the self-similarity branch,
+the IQA model can deliver perceptual quality prediction results
+but sacrifice differentiability. As such, we unify the two branches
+to yield the dual-branch framework. Moreover, without highdimensional projection, the performance of the model degrades.
+This is expected, as the basic linear gram matrix of VGG features
+is less capable of approaching highly nonlinear HVS.
+Different training sets. We tested DBIQA during training
+with different training sets. Specifically, we trained DBIQA by
+regressing MOS scores on the TID2013 [10], KADID-10k [11]
+and PIPAL [12] training sets. Herein, we still use the batch
+PLCC as a loss function to ensure that the distribution of DBIQA
+outputs is close to the MOS score distribution, which is
+arg min 1 − |P LCC(f (R, B, Θ), M OS)|,
+Θ
+
+(12)
+
+where R and B are the reference image and distorted image
+batches, respectively. M OS is the MOS score batch. The results are shown in Table XIII. It is clear that DBIQA can
+maintain high perceptual relevance when training on different
+datasets, especially on the TID2013 [10], KADID-10k [11]
+and PIPAL [12] datasets. This is because the self-similarity
+branch is not sensitive to content location variations; thus, its
+performance will not drastically fall when testing on content
+misalignment datasets such as SynTEX [22], TQD [1], and
+PIPAL [12]. Moreover, the pairwise comparison branch helps
+the model perform well on classic IQA datasets and improves
+interpretability in perceptual image enhancement. In conclusion,
+the union of dual branches can not only bridge the gaps between
+classic and several algorithm-generated image datasets but also
+introduce differentiability to the FR-IQA model.
+Different measures for comparison. We test various measures
+for comparing the similarity matrices and the deep network
+features in both branches, including the MAE, mean square
+error (MSE), PSNR, and cosine similarity. These results are
+
+summarized in Table XIV. We find that there are no clearly
+superior measures across the diverse IQA datasets. This occurs
+because the statistical properties of these datasets significantly
+vary. Proving which measures are Pareto optimal across all IQA
+scenarios is extremely complex. This is also an issue we are still
+working on. Nevertheless, we recommend the use of a simple
+measure such as the MAE or cosine similarity as the basis function when building deep feature comparison measures because
+we find that training models with PSNR can be unstable and
+prone to overflow because the maximum, fraction and logarithm
+operations involved in PSNR computation, which are as follows:
+
+
+M AXI2
+,
+(13)
+P SN R(I, K) = 10 × log10
+M SE
+where I is the reference image and where K is the distorted
+image. M SE is the mean square error between I and K. In
+conclusion, the best basic measure for building advanced FRIQA models is still the issue we work on, and we suggest using
+a simple basic measure to compare.
+V. CONCLUSION
+We introduce a dual-branch framework to unify feature selfsimilarity comparisons and feature pairwise comparisons, aiming to explore the joint degradation effect in discerning appealing
+content deformations. Our proposed feature comparison approach is robust to perceptual deformations across diverse IQA
+scenarios and can also guide perceptual image enhancement,
+unifying the perceptual quality assessment and enhancement.
+This issue is an underexplored part of current IQA research.
+Furthermore, our approach is backbone-independent. We tested
+various deep neural networks, all delivering perceptual quality
+assessment results. These findings demonstrate two important
+things. First, content deformation issues widely exist in modern
+IQA scenarios, and measuring the joint degradation effect can
+better interpret these complex distortion types. Second, unifying
+feature self-similarity and feature pairwise comparisons are
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+2814
+
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE, VOL. 47, NO. 4, APRIL 2025
+
+vital, which enables the model to perform well in both evaluating
+perceptual quality and guiding perceptual image enhancement.
+Our dual-branch framework still mimics a tiny part of the HVS
+capabilities, i.e., discerning appealing content deformations and
+predicting the pristine form of given distorted images. The
+behaviour of such a highly complex system in more special evaluation situations remains unexplored. As such, more datasets
+in special quality assessment scenarios are needed. It is also
+evident that our work is just the beginning of exploring how
+the HVS senses and compares perceptual features. The core
+issue is to focus more on analyzing the statistical properties of
+these datasets and revealing the latent comparison mechanism
+of the HVS rather than simply building a large-scale model and
+using brute force to fit the subjective scores.
+
+REFERENCES
+[1] K. Ding, K. Ma, S. Wang, and E. P. Simoncelli, “Image quality assessment:
+Unifying structure and texture similarity,” IEEE Trans. Pattern Anal.
+Mach. Intell., vol. 44, no. 5, pp. 2567–2581, May 2022.
+[2] W. Zhang, D. Li, C. Ma, G. Zhai, X. Yang, and K. Ma, “Continual learning
+for blind image quality assessment,” IEEE Trans. Pattern Anal. Mach.
+Intell., vol. 45, no. 3, pp. 2864–2878, Mar. 2023.
+[3] K. Ding, Y. Liu, X. Zou, S. Wang, and K. Ma, “Locally adaptive structure
+and texture similarity for image quality assessment,” in Proc. 29th ACM
+Int. Conf. Multimedia, 2021, pp. 2483–2491.
+[4] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2016,
+pp. 770–778.
+[5] K. Ding, K. Ma, S. Wang, and E. P. Simoncelli, “Comparison of fullreference image quality models for optimization of image processing
+systems,” Int. J. Comput. Vis., vol. 129, no. 4, pp. 1258–1281, 2021.
+[6] X. Liao, X. Wei, M. Zhou, Z. Li, and S. Kwong, “Image quality assessment: Measuring perceptual degradation via distribution measures in deep
+feature spaces,” IEEE Trans. Image Process., vol. 33, pp. 4044–4059,
+2024.
+[7] W. Zhang et al., “Perceptual attacks of no-reference image quality models
+with human-in-the-loop,” in Proc. Adv. Neural Inf. Process. Syst., 2022,
+pp. 2916–2929.
+[8] S. Lao et al., “Attentions help CNNs see better: Attention-based hybrid
+image quality assessment network,” 2022, arXiv:2204.10485.
+[9] S. Bosse, D. Maniry, K.-R. Müller, T. Wiegand, and W. Samek, “Deep
+neural networks for no-reference and full-reference image quality assessment,” IEEE Trans. Image Process., vol. 27, no. 1, pp. 206–219, Jan. 2018.
+[10] N. Ponomarenko et al., “Image database tid2013: Peculiarities, results and
+perspectives,” Signal Process., Image Commun., vol. 30, pp. 57–77, 2015.
+[11] H. Lin, V. Hosu, and D. Saupe, “Kadid-10k: A large-scale artificially
+distorted IQA database,” in Proc. 10th Int. Conf. Qual. Multimedia Experience, 2019, pp. 1–3.
+[12] J. Gu, H. Cai, H. Chen, X. Ye, J. Ren, and C. Dong, “Pipal: A largescale image quality assessment dataset for perceptual image restoration,”
+in Proc. Eur. Conf. Comput. Vis., Springer International Publishing, 2020,
+pp. 633–651.
+[13] L. Zhang, L. Zhang, X. Mou, and D. Zhang, “FSIM: A feature similarity
+index for image quality assessment,” IEEE Trans. Image Process., vol. 20,
+no. 8, pp. 2378–2386, Aug. 2011.
+[14] N. Kriegeskorte, M. Mur, and P. A. Bandettini, “Representational similarity analysis-connecting the branches of systems neuroscience,” Front.
+Syst. Neurosci., vol. 2, 2008, Art. no. 249.
+[15] S. Kornblith, M. Norouzi, H. Lee, and G. Hinton, “Similarity of neural
+network representations revisited,” in Proc. Int. Conf. Mach. Learn.,
+PMLR, 2019, pp. 3519–3529.
+[16] F. N. Iandola, “SqueezeNet: Alexnet-level accuracy with 50x fewer parameters and <0.5mb model size,” 2016, arXiv: 1602.07360.
+[17] A. Howard et al., “Searching for MobileNetv3,” in Proc. IEEE/CVF Int.
+Conf. Comput. Vis., 2019, pp. 1314–1324.
+[18] B. Koonce and B. Koonce, “Efficientnet,” in Convolutional Neural Networks With Swift for Tensorflow: Image Recognition and Dataset Categorization. Berlin, Germany: Springer, 2021, pp. 109–123.
+
+[19] H. R. Sheikh, Z. Wang, L. Cormack, and A. C. Bovik, “LIVE image
+quality assessment database release 2,” Jun. 2010. [Online]. Available:
+http://live.ece.utexas.edu/research/quality
+[20] E. C. Larson and D. M. Chandler, “Most apparent distortion: Full-reference
+image quality assessment and the role of strategy,” J. Electron. Imag.,
+vol. 19, pp. 011006–011006–21, Jan. 2010.
+[21] F. Zhou, R. Yao, B. Liu, and G. Qiu, “Visual quality assessment for superresolved images: Database and method,” IEEE Trans. Image Process.,
+vol. 28, no. 7, pp. 3528–3541, Jul. 2019.
+[22] S. A. Golestaneh, M. M. Subedar, and L. J. Karam, “The effect of texture
+granularity on texture synthesis quality,” Appl. Digit. Image Process.,
+vol. 9599, pp. 356–361, 2015.
+[23] X. Min et al., “Screen content quality assessment: Overview, benchmark,
+and beyond,” ACM Comput. Surv., vol. 54, no. 9, pp. 1–36, 2021.
+[24] Z. Ni, L. Ma, H. Zeng, Y. Fu, L. Xing, and K.-K. Ma, “SCID: A database
+for screen content images quality assessment,” in Proc. 2017 Int. Symp.
+Intell. Signal Process. Commun. Syst., pp. 774–779, 2017.
+[25] S. Hu, L. Jin, H. Wang, Y. Zhang, S. Kwong, and C.-C. J. Kuo, “Compressed image quality metric based on perceptually weighted distortion,” IEEE Trans. Image Process., vol. 24, no. 12, pp. 5594–5608,
+Dec. 2015.
+[26] Y. Li, S. Wang, X. Zhang, S. Wang, S. Ma, and Y. Wang, “Quality
+assessment of end-to-end learned image compression: The benchmark
+and objective measure,” in Proc. 29th ACM Int. Conf. Multimedia, 2021,
+pp. 4297–4305.
+[27] N. Kawabata and M. Miyao, “Multi-view 3D CG image quality assessment
+for contrast enhancement based on S-cielab color space,” IEICE Trans. Inf.
+Syst., vol. 100, no. 7, pp. 1448–1462, 2017.
+[28] X. Min, J. Zhou, G. Zhai, P. Le Callet, X. Yang, and X. Guan, “A metric
+for light field reconstruction, compression, and display quality evaluation,”
+IEEE Trans. Image Process., vol. 29, pp. 3790–3804, 2020.
+[29] V. K. Adhikarla et al., “Towards a quality metric for dense light
+fields,” in Proc. 2017 IEEE Conf. Comput. Vis. Pattern Recognit., 2017,
+pp. 3720–3729.
+[30] F. Gao, Y. Wang, P. Li, M. Tan, J. Yu, and Y. Zhu, “DeepSim: Deep similarity for image quality assessment,” Neurocomputing, vol. 257, pp. 104–114,
+2017.
+[31] J. Kim and S. Lee, “Deep learning of human visual sensitivity in image
+quality assessment framework,” in Proc. IEEE Conf. Comput. Vis. Pattern
+Recognit., 2017, pp. 1676–1684.
+[32] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang, “The unreasonable effectiveness of deep features as a perceptual metric,” in Proc.
+2018 IEEE/CVF Conf. Comput. Vis. Pattern Recognit., 2018, pp. 586–595.
+[33] E. Prashnani, H. Cai, Y. Mostofi, and P. Sen, “PieAPP: Perceptual imageerror assessment through pairwise preference,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2018, pp. 1808–1817.
+[34] C. Chen et al., “TOPIQ: A top-down approach from semantics to distortions for image quality assessment,” IEEE Trans. Image Process., vol. 33,
+pp. 2404–2418, 2024.
+[35] W. Shen, M. Zhou, J. Luo, Z. Li, and S. Kwong, “Graph-represented
+distribution similarity index for full-reference image quality assessment,”
+IEEE Trans. Image Process., vol. 33, pp. 3075–3089, 2024.
+[36] H. Lin, V. Hosu, and D. Saupe, “DeepFL-IQA: Weak supervision for deep
+IQA feature learning,” 2020, arXiv: 2001.08113.
+[37] P. C. Madhusudana, N. Birkbeck, Y. Wang, B. Adsumilli, and A. C. Bovik,
+“Image quality assessment using contrastive learning,” IEEE Trans. Image
+Process., vol. 31, pp. 4149–4161, 2022.
+[38] A. Saha, S. Mishra, and A. C. Bovik, “Re-IQA: Unsupervised learning
+for image quality assessment in the wild,” in Proc. 2023 IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., 2023, pp. 5846–5855.
+[39] L. Agnolucci, L. Galteri, M. Bertini, and A. Del Bimbo, “ARNIQA:
+Learning distortion manifold for image quality assessment,” in
+Proc. 2024 IEEE/CVF Winter Conf. Appl. Comput. Vis., 2024,
+pp. 188–197.
+[40] O. Wiedemann, V. Hosu, S. Su, and D. Saupe, “KonX: Cross-resolution
+image quality assessment,” Qual. User Experience, vol. 8, no. 1, 2023,
+Art. no. 8.
+[41] G. Chrupała and A. Alishahi, “Correlating neural and symbolic representations of language,” 2019, arXiv: 1905.06401.
+[42] X. Wang et al., “Representational similarity analysis reveals taskdependent semantic influence of the visual word form area,” Sci. Rep.,
+vol. 8, no. 1, 2018, Art. no. 3047.
+[43] I. I. Groen, M. R. Greene, C. Baldassano, L. Fei-Fei, D. M. Beck,
+and C. I. Baker, “Distinct contributions of functional and deep neural
+network features to representational similarity of scenes in human brain
+and behavior,” Elife, vol. 7, 2018, Art. no. e32962.
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+LIAO et al.: IMAGE QUALITY ASSESSMENT: EXPLORING JOINT DEGRADATION EFFECT OF DEEP NETWORK FEATURES
+
+[44] L. Gatys, A. S. Ecker, and M. Bethge, “Texture synthesis using convolutional neural networks,” in Proc. Adv. Neural Inf. Process. Syst., 2015,
+pp. 262–270.
+[45] Y. Dai, Y. Li, B. Sun, and L.-J. Liu, “Skip-connected network with
+gram matrix for product image retrieval,” Neurocomputing, vol. 447,
+pp. 307–318, 2021.
+[46] K. Friston, J. Kilner, and L. Harrison, “A free energy principle for the
+brain,” J. Physiol.-Paris, vol. 100, no. 1-3, pp. 70–87, 2006.
+[47] K. Friston, “The free-energy principle: A unified brain theory,” Nat. Rev.
+Neurosci., vol. 11, no. 2, pp. 127–138, 2010.
+[48] K. Gu, G. Zhai, X. Yang, and W. Zhang, “Using free energy principle for
+blind image quality assessment,” IEEE Trans. Multimedia, vol. 17, no. 1,
+pp. 50–63, Jan. 2015.
+[49] G. Zhai, X. Wu, X. Yang, W. Lin, and W. Zhang, “A psychovisual quality
+metric in free-energy principle,” IEEE Trans. Image Process., vol. 21,
+no. 1, pp. 41–52, Jan. 2012.
+[50] T. Hertz, A. B. Hillel, and D. Weinshall, “Learning a kernel function for
+classification with small training samples,” in Proc. 23rd Int. Conf. Mach.
+Learn., 2006, pp. 401–408.
+[51] K. Simonyan and A. Zisserman, “Very deep convolutional networks for
+large-scale image refcognition,” 2015, arXiv:1409.1556.
+[52] S. Woo, J. Park, J.-Y. Lee, and I. S. Kweon, “CBAM: Convolutional block
+attention module,” in Proc. Eur. Conf. Comput. Vis., 2018, pp. 3–19.
+[53] M. L. Anderson, After Phrenology: Neural Reuse and the Interactive Brain.
+Cambridge, MA, USA: MIT Press, 2021.
+[54] I. Kligvasser, T. Shaham, Y. Bahat, and T. Michaeli, “Deep selfdissimilarities as powerful visual fingerprints,” in Proc. Adv. Neural Inf.
+Process. Syst., 2021, pp. 3939–3951.
+[55] H. Zhu, B. Chen, L. Zhu, S. Wang, and W. Lin, “DeepDC:
+Deep distance correlation as a perceptual image quality evaluator,”
+2023, arXiv:2211.04927.
+[56] J. Xie, F. Long, J. Lv, Q. Wang, and P. Li, “Joint distribution matters:
+Deep brownian distance covariance for few-shot classification,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit., 2022, pp. 7972–7981.
+[57] R. A. Bradley and M. E. Terry, “Rank analysis of incomplete block designs:
+The method of paired comparisons,” Biometrika, vol. 39, pp. 324–345,
+1952.
+[58] L. Krasula, K. Fliegel, P. Le Callet, and M. Klíma, “On the accuracy
+of objective image and video quality models: New methodology for
+performance evaluation,” in Proc. IEEE 8th Int. Conf. Qual. Multimedia
+Experience, 2016, pp. 1–6.
+[59] Z. Wang, A. Bovik, H. Sheikh, and E. Simoncelli, “Image quality assessment: From error visibility to structural similarity,” IEEE Trans. Image
+Process., vol. 13, no. 4, pp. 600–612, Apr. 2004.
+[60] Z. Wang, E. Simoncelli, and A. Bovik, “Multi-scale structural similarity
+for image quality assessment,” in Proc. IEEE Asilomar Conf. Signals Syst.
+Comput., 2004, vol. 2, pp. 1398–1402.
+[61] H. Sheikh and A. Bovik, “Image information and visual quality,” IEEE
+Trans. Image Process., vol. 15, no. 2, pp. 430–444, Feb. 2006.
+[62] M. P. Sampat, Z. Wang, S. Gupta, A. C. Bovik, and M. K. Markey,
+“Complex wavelet structural similarity: A new image similarity index,”
+IEEE Trans. Image Process., vol. 18, no. 11, pp. 2385–2401, Nov. 2009.
+[63] D. Amir and Y. Weiss, “Understanding and simplifying perceptual distances,” in Proc. 2021 IEEE/CVF Conf. Comput. Vis. Pattern Recognit.,
+2021, pp. 12221–12230.
+[64] M. Delbracio, H. Talebei, and P. Milanfar, “Projected distribution loss
+for image enhancement,” in Proc. IEEE Int. Conf. Comput. Photography,
+2021, pp. 1–12.
+[65] J. Johnson, A. Alahi, and L. Fei-Fei, “Perceptual losses for real-time style
+transfer and super-resolution,” in Proc. Eur. Conf. Comput. Vis., 2016,
+pp. 694–711.
+[66] P. Wang, Y. Li, and N. Vasconcelos, “Rethinking and improving the robustness of image style transfer,” in Proc. 2021 IEEE/CVF Conf. Comput.
+Vis. Pattern Recognit., 2021, pp. 124–133.
+[67] A. Ilyas, S. Santurkar, D. Tsipras, L. Engstrom, B. Tran, and A. Madry,
+“Adversarial examples are not bugs, they are features,” in Proc. Int. Conf.
+Neural Inf. Process. Syst., 2019, pp. 125–136.
+[68] J. M. Monteiro and M. S. Nunes, “A subjective quality estimation tool
+for the evaluation of video communication systems,” in Proc. 12th IEEE
+Symp. Comput. Commun., 2007, pp. MW–75.
+
+2815
+
+Xingran Liao received the bachelor’s degree in mathematics from Sichuan University. He is currently the
+PhD degree in computer science with the City University of Hong Kong. His research interests include perceptual image quality assessment and enhancement.
+
+Xuekai Wei received the PhD degree in computer
+science from the City University of Hong Kong, Hong
+Kong, in 2021. He is currently an associate professor
+with the School of Computer Science, Chongqing
+University, Chongqing, China.
+
+Mingliang Zhou (Senior Member, IEEE) received
+the PhD degree in computer science from Beihang
+University, Beijing, China, in 2017. He was a postdoctoral researcher with the Department of Computer
+Science, City University of Hong Kong, Hong Kong,
+China, from 2017 to 2019. He was a postdoctoral
+fellow with the State Key Lab of Internet of Things for
+Smart City, University of Macau, Macau, China, from
+2019 to 2021. He is currently an associate professor
+with the School of Computer Science. Chongqing
+University, Chongqing, China. His research interests
+include image and video coding, perceptual image processing, multimedia signal
+processing, rate control, multimedia communication, machine learning, and
+optimization.
+
+Hau-San Wong (Member, IEEE) received the BSc
+and MPhil degrees in electronic engineering from
+the Chinese University of Hong Kong, Hong Kong,
+in 1991 and 1993, respectively, and the PhD degree
+in electrical and information engineering from the
+University of Sydney, Sydney, NSW, Australia, in
+1999. He is currently a professor with the Department of Computer Science, City University of Hong
+Kong, Hong Kong. His research interests include deep
+learning and computer vision.
+
+Sam Kwong (Fellow, IEEE) received the BSc degree
+in electrical engineering from The State University
+of New York, Buffalo, NY, USA, in 1983, the MSc
+degree in electrical engineering from the University
+of Waterloo, Waterloo, ON, Canada, in 1985, and the
+PhD degree from the University of Hagen, Hagen,
+Germany, in 1996. He is currently a chair professor
+of Computational Intelligence and concurrently an
+associate vice president (Strategic Research) with
+Lingnan University, Hong Kong, China.
+
+Authorized licensed use limited to: Vrije Universiteit Amsterdam. Downloaded on July 05,2026 at 05:39:06 UTC from IEEE Xplore. Restrictions apply.
+
+

@@ -1,0 +1,182 @@
+run-experiment	UNKNOWN STEP	﻿2026-07-29T11:17:13.2801285Z Current runner version: '2.336.0'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2841162Z Runner name: 'amansouri'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2842607Z Runner group name: 'Default'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2844250Z Machine name: 'amansouri'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2849595Z ##[group]GITHUB_TOKEN Permissions
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2853326Z Contents: read
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2854286Z Metadata: read
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2855417Z Packages: read
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2856340Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2860062Z Secret source: Actions
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.2861841Z Prepare workflow directory
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.5048232Z Prepare all required actions
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:13.5140651Z Getting action download info
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:14.3174010Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:16.7268226Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.5094178Z Complete job name: run-experiment
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6639390Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6655008Z ##[group]Run actions/checkout@v4
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6656076Z with:
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6656793Z   repository: amirkhaki/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6661012Z   token: ***
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6661449Z   ssh-strict: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6662142Z   ssh-user: git
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6662610Z   persist-credentials: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6663313Z   clean: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6664299Z   sparse-checkout-cone-mode: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6664855Z   fetch-depth: 1
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6665444Z   fetch-tags: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6665909Z   show-progress: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6666345Z   lfs: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6667046Z   submodules: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6667603Z   set-safe-directory: true
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6668864Z   allow-unsafe-pr-checkout: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.6670696Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9282926Z Syncing repository: amirkhaki/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9289400Z ##[group]Getting Git version info
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9292418Z Working directory is '/storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9296505Z [command]/usr/bin/git version
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9298155Z git version 2.25.1
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9303678Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9319269Z Temporarily overriding HOME='/storage/users/akhakpour/actions-runner/_work/_temp/7946cf4d-8453-4f82-b740-582ff0d9ce1d' before making global git config changes
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9323625Z Adding repository directory to the temporary git global config as a safe directory
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9325542Z [command]/usr/bin/git config --global --add safe.directory /storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9399898Z [command]/usr/bin/git config --local --get remote.origin.url
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9472624Z https://github.com/amirkhaki/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9509519Z ##[group]Removing previously created refs, to avoid conflicts
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9513829Z [command]/usr/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9613757Z refs/heads/main
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:21.9629676Z [command]/usr/bin/git checkout --detach
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.0492238Z HEAD is now at a556389 Integrate VGG16 Gram SSIM with DINOv2 Spatial Features in foundation_hybrid.py
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.0640855Z [command]/usr/bin/git branch --delete --force main
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.0883498Z Deleted branch main (was a556389).
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.1036921Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.1044758Z [command]/usr/bin/git submodule status
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.1936503Z ##[group]Cleaning the repository
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.1945210Z [command]/usr/bin/git clean -ffdx
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2442994Z Removing experiments/__pycache__/
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2444945Z Removing experiments/models/__pycache__/
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2447422Z Removing results/
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2448721Z Removing run_output.log
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2464991Z [command]/usr/bin/git reset --hard HEAD
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2792067Z HEAD is now at a556389 Integrate VGG16 Gram SSIM with DINOv2 Spatial Features in foundation_hybrid.py
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2802112Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2821169Z ##[group]Disabling automatic garbage collection
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2830964Z [command]/usr/bin/git config --local gc.auto 0
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2954874Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2956076Z ##[group]Setting up auth
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.2974937Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.3075573Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.3991533Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.4082234Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.4938129Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.5022736Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.5831127Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.6042730Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.6045279Z ##[group]Fetching the repository
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:22.6076215Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +4e1cf8361984f260b543cf809b63eb6bf45a6051:refs/remotes/origin/main
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5579017Z From https://github.com/amirkhaki/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5581034Z  + a556389...4e1cf83 4e1cf8361984f260b543cf809b63eb6bf45a6051 -> origin/main  (forced update)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5661556Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5663291Z ##[group]Determining the checkout info
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5664737Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5665945Z ##[group]Checking out the ref
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5670270Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5982304Z Warning: you are leaving 1 commit behind, not connected to
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5983637Z any of your branches:
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5984120Z 
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5985056Z   a556389 Integrate VGG16 Gram SSIM with DINOv2 Spatial Features in foundation_hybrid.py
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5986222Z 
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5986924Z If you want to keep it by creating a new branch, this may be a good time
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5988131Z to do so with:
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5988550Z 
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.5989023Z  git branch <new-branch-name> a556389
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6227264Z 
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6227977Z Switched to a new branch 'main'
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6237182Z Branch 'main' set up to track remote branch 'main' from 'origin'.
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6246540Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6419750Z [command]/usr/bin/git log -1 --format=%H
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.6531213Z 4e1cf8361984f260b543cf809b63eb6bf45a6051
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7629001Z ##[group]Run # Source conda and activate the dd environment
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7631616Z ^[[36;1m# Source conda and activate the dd environment^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7633149Z ^[[36;1msource $HOME/miniconda3/etc/profile.d/conda.sh^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7634196Z ^[[36;1mconda activate dd^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7634936Z ^[[36;1m^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7635685Z ^[[36;1m# Set the dataset root to the absolute path^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7636948Z ^[[36;1mexport IDFIQA_DATASET_ROOT="$HOME/idfiqa/datasets"^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7638315Z ^[[36;1m^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7639832Z ^[[36;1m# Execute the command provided by the agent^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7642804Z ^[[36;1mecho "Running command: python run.py foundation_hybrid -d LIVE CSIQ TID2013 KADID PIPAL --dino-model dinov2_vitb14 --cnn-backbone alexnet"^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7646047Z ^[[36;1mpython run.py foundation_hybrid -d LIVE CSIQ TID2013 KADID PIPAL --dino-model dinov2_vitb14 --cnn-backbone alexnet 2>&1 | tee run_output.log^[[0m
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7718538Z shell: /usr/bin/bash -e {0}
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:23.7719442Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:25.9324971Z Running command: python run.py foundation_hybrid -d LIVE CSIQ TID2013 KADID PIPAL --dino-model dinov2_vitb14 --cnn-backbone alexnet
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.0965100Z Using cache found in /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1484192Z /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/swiglu_ffn.py:51: UserWarning: xFormers is not available (SwiGLU)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1486804Z   warnings.warn("xFormers is not available (SwiGLU)")
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1536509Z /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/attention.py:33: UserWarning: xFormers is not available (Attention)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1540302Z   warnings.warn("xFormers is not available (Attention)")
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1556380Z /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main/dinov2/layers/block.py:40: UserWarning: xFormers is not available (Block)
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:36.1558881Z   warnings.warn("xFormers is not available (Block)")
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:40.2922387Z Device:     cuda
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:40.2925572Z Experiment: foundation_hybrid
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:40.2928702Z Output:     /storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa/results
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:40.2930518Z Time:       2026-07-29 11:17:35
+run-experiment	UNKNOWN STEP	2026-07-29T11:17:40.2934116Z   backbone=dinov2_vitb14_alexnet_zoom_moe  feat=fh_moe_zoom_moe
+run-experiment	UNKNOWN STEP	2026-07-29T11:19:18.3000998Z Using cache found in /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main
+run-experiment	UNKNOWN STEP	2026-07-29T11:19:21.1999403Z   LIVE        SRCC=-0.9533  PLCC=0.9511
+run-experiment	UNKNOWN STEP	2026-07-29T11:21:11.6520224Z Using cache found in /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main
+run-experiment	UNKNOWN STEP	2026-07-29T11:21:14.6702139Z   CSIQ        SRCC=-0.9330  PLCC=0.9372
+run-experiment	UNKNOWN STEP	2026-07-29T11:27:28.8733727Z Using cache found in /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main
+run-experiment	UNKNOWN STEP	2026-07-29T11:27:32.0188271Z   TID2013     SRCC=0.8396  PLCC=0.8636
+run-experiment	UNKNOWN STEP	2026-07-29T11:37:51.5442996Z Using cache found in /storage/users/akhakpour/.cache/torch/hub/facebookresearch_dinov2_main
+run-experiment	UNKNOWN STEP	2026-07-29T11:37:54.9456645Z   KADID       SRCC=0.8979  PLCC=0.8980
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:42.9848225Z   PIPAL       SRCC=0.6835  PLCC=0.7165
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:42.9850055Z   Summary -> results/foundation_hybrid_dinov2_vitb14_alexnet_zoom_moe_fh_moe_zoom_moe_pf0.6_ws4_ps8_aggmax_summary.json
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:42.9851484Z 
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:42.9852846Z Done. All outputs in: /storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa/results/
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6815547Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6820372Z ##[group]Run actions/upload-artifact@v4
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6821256Z with:
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6822128Z   name: experiment-results
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6823022Z   path: results/
+run-experiment	UNKNOWN STEP	run_output.log
+run-experiment	UNKNOWN STEP	
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6824041Z   if-no-files-found: warn
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6824932Z   compression-level: 6
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6825912Z   overwrite: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6826756Z   include-hidden-files: false
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:47.6827656Z ##[endgroup]
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8819767Z (node:42512) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8823204Z (Use `node --trace-deprecation ...` to show where the warning was created)
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8975406Z Multiple search paths detected. Calculating the least common ancestor of all paths
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8978313Z The least common ancestor is /storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa. This will be the root directory of the artifact
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8980151Z With the provided path, there will be 7 files uploaded
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8984908Z Artifact name is valid!
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:48.8985552Z Root directory input is valid!
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:49.7009615Z Beginning upload of artifact content to blob storage
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:49.9045313Z (node:42512) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.1811863Z Uploaded bytes 127579
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.3775024Z Finished uploading artifact content to blob storage!
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.3776994Z SHA256 digest of uploaded artifact zip is 0e681e6f8d9913337b95d5a845fb961d77191ad89d7108a6b8c84262e277b03f
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.3780179Z Finalizing artifact upload
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.7049996Z Artifact experiment-results.zip successfully finalized. Artifact ID 8722704943
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.7052350Z Artifact experiment-results has been successfully uploaded! Final size is 127579 bytes. Artifact ID is 8722704943
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.7098299Z Artifact download URL: https://github.com/amirkhaki/idfiqa/actions/runs/30446969791/artifacts/8722704943
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.9143993Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:51.9147770Z Post job cleanup.
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.3970440Z [command]/usr/bin/git version
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.4048643Z git version 2.25.1
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.4771153Z Temporarily overriding HOME='/storage/users/akhakpour/actions-runner/_work/_temp/b72a5d30-3e5d-4136-8b06-dac86f5958ee' before making global git config changes
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.4773642Z Adding repository directory to the temporary git global config as a safe directory
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.4781427Z [command]/usr/bin/git config --global --add safe.directory /storage/users/akhakpour/actions-runner/_work/idfiqa/idfiqa
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.4928469Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.5031763Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.7102461Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.7745578Z http.https://github.com/.extraheader
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.7773386Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:52.7919790Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:53.0065953Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:53.0177646Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:53.3859793Z Cleaning up orphan processes
+run-experiment	UNKNOWN STEP	2026-07-29T11:49:53.4996959Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

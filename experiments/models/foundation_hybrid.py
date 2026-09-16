@@ -247,7 +247,7 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s_global = self._single_scale_forward(ref, dist)
 
         if not self.multiscale:
-            return s_global
+            return {"score": s_global, "global_view": s_global}
 
         B, C, H, W = ref.shape
         crop_size = int(min(H, W) * 0.70)  # ~200x200 native resolution crop
@@ -278,7 +278,13 @@ class IDFIQA_FoundationHybrid(nn.Module):
         s_zoom_tex = self._single_scale_forward(ref_tex, dist_tex)
 
         torch.cuda.empty_cache()
-        return 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
+        score = 0.60 * s_global + 0.25 * s_zoom_center + 0.15 * s_zoom_tex
+        return {
+            "score": score,
+            "global_view": s_global,
+            "zoom_center": s_zoom_center,
+            "zoom_texture": s_zoom_tex
+        }
 
 
 def _build_foundation_hybrid(device, dino_model="dinov2_vitb14", cnn_backbone="alexnet", multiscale=True):

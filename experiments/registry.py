@@ -96,6 +96,10 @@ class DefaultExperiment(ExperimentBase):
                 srcc, plcc = compute_metrics([float(r["score"]) for r in rows],
                                              [float(r["mos_label"]) for r in rows])
                 print(f"  {ds:10s}  SRCC={srcc:.4f}  PLCC={plcc:.4f}  (cached)")
+                extra_keys = [k for k in rows[0].keys() if k not in ["idx", "ref_img_path", "dis_img_path", "score", "mos_label"]]
+                for k in extra_keys:
+                    ek_s, ek_p = compute_metrics([float(r[k]) for r in rows], [float(r["mos_label"]) for r in rows])
+                    print(f"    {k:12s} SRCC={ek_s:.4f}  PLCC={ek_p:.4f}  (cached)")
             else:
                 srcc, plcc, _, _ = run_evaluation(model, ds, csv_name,
                                                   num_workers=num_workers, force=force,

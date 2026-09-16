@@ -1,0 +1,2413 @@
+MR-IQA: A Unified Margin View of Regression and Ranking for Blind Image
+Quality Assessment
+
+arXiv:2606.29760v2 [cs.CV] 30 Jun 2026
+
+Yuan Li Youyuan Lin Zitang Sun Yung-Hao Yang Kiyofumi Miyoshi Chenhui Chu Shin’ya Nishida
+Graduate School of Informatics, Kyoto University
+
+Abstract
+Blind image quality assessment (BIQA) is commonly built
+on two basic learning paradigms: regression and ranking.
+Regression calibrates absolute scores, whereas ranking recovers quality structure from ordinal relations. Although
+joint regression-ranking supervision often improves BIQA,
+the relation between the two paradigms remains largely empirical and underexplored. In this work, we revisit what
+underlies regression and ranking and identify pairwise relational distance, termed quality margin, as their common bridge. Our derivation shows that, at the objectiveoptimization level, both paradigms fit quality margins: regression fits margins induced by score endpoints, while
+ranking fits transformed or sign-level margins through preference probabilities. Motivated by this insight, we propose
+MR-IQA, a direct quality-margin optimization framework
+for reinforcement learning (RL)-based BIQA. MR-IQA samples quality scores and optimizes pairwise margin errors as
+policy rewards, thereby modeling quality structure more explicitly. Experiments on six BIQA benchmarks show competitive general performance, and controlled comparisons
+demonstrate that MR-IQA achieves the strongest average
+PLCC/SRCC over regression- or ranking-based RL methods. Our findings provide a new insight into unifying regression and ranking, offering a theoretical basis for understanding quality-structure modeling in BIQA and beyond.
+Code is available at MR-IQA.
+
+𝑀𝑂𝑆 𝜇𝑗
+
+𝑀𝑂𝑆 𝜇𝑖
+
+Regression
+
+Ranking
+𝑃(𝑖 > 𝑗)
+
+𝑠𝑖
+
+𝑠𝑗
+
+−2 0
+
+Preference probability
+
+Unified View
+
+Margin Learning
+∆𝑠𝑖𝑗
+
+∆𝑠𝑖𝑗
+∆𝑠𝑖𝑗
+𝑠𝑖
+
+2 ∆𝑠𝑖𝑗
+
+Endpoints
+
+𝑠𝑗
+
+0
+
+0.5
+
+Regression ≈ Ranking
+
+1
+
+𝑠𝑗
+
+𝑠𝑖
+∆𝜇𝑖𝑗
+
+Relative distance
+
+Figure 1. Motivation of margin learning for BIQA. Regression
+estimates pointwise quality endpoints, while ranking maps pairwise differences into preference probabilities. Both methods can
+be interpreted through a unified margin view, as formalized in
+Secs. 3.2 to 3.4, and margin learning directly models the relative distance between predicted score gaps ∆sij and mean opinion
+score (MOS) gaps ∆µij .
+
+Despite this shift in representation framework, recent
+MLLM-based BIQA methods [18, 20, 33–35, 37, 38] still
+rely on classical regression or ranking algorithms to define supervision. Regression provides a calibrated score
+target, but it also ties learning to dataset-specific score anchors. Pairwise ranking alleviates this issue by comparing images directly. In supervised fine-tuning (SFT)-based
+MLLM training, DeQA [38] combines score regression
+with a weighted Thurstone-style [31] fidelity loss to balance
+pointwise calibration and ordinal comparison. In reinforcement learning (RL)-based MLLM training, Q-Insight [18]
+adopts a regression-style reward, while VisualQuality-R1
+
+1. Introduction
+Blind image quality assessment (BIQA) seeks to model how
+humans judge perceptual image quality from visual content.
+Along with the development of machine learning, BIQA has
+evolved from hand-crafted statistical priors [25, 26] to deep
+visual representations [1, 15, 32, 36, 39, 40] and, more recently, to multimodal large language models (MLLMs) [18,
+33, 34, 37, 38]. These frameworks have expanded BIQA
+from score prediction alone toward a unified assessment interface that can produce language-based quality reasoning.
+
+1
+
+2. Related Work
+
+(VQ-R1) [35] uses a Thurstone fidelity reward for pairwise
+ranking. Later work such as Zoom-IQA [20] also explores
+joint regression-ranking rewards. These designs are effective in practice, but the relation between regression and
+ranking remains largely empirical: their complementarity
+is usually adjusted by loss weights or reward design rather
+than explained by a shared optimization principle.
+
+2.1. Regression-based BIQA
+CNNIQA [14] is an early representative showing that a
+CNN can learn no-reference quality prediction directly
+from image patches, while DeepBIQ [4] and DBCNN [39]
+further strengthened CNN-based score regression with
+deeper visual representations and bilinear feature modeling. NIMA [29] takes a different route: it predicts a softmax distribution over ordered rating bins and derives the
+final quality score. MUSIQ [15] and MANIQA [36] then
+extend score prediction with Transformer-based [7] multiscale and attention representations. Recent MLLM-based
+BIQA methods inherit this score-estimation view through
+label-wise supervision. Q-Align [33] uses discrete quality
+labels, and DeQA [38] extends one-hot labels to multi-label
+score distributions with cross-entropy supervision. With the
+shift to RL, Q-Insight [18] converts label-wise score supervision into a continuous numerical reward for quality prediction. Regression-based method is easy to interpret, but
+remains sensitive to dataset-specific score anchors.
+
+To explore this issue, we revisit regression and ranking
+under an RL training framework. For training images, the
+reward should admit a theoretical optimum. Regardless of
+whether supervision is derived from regression, ranking, or
+their combination, these objectives are eventually projected
+into the same reward space. This projection suggests that
+regression and ranking may share an underlying optimization target rather than acting as two independent signals.
+As illustrated in Fig. 1, both regression and ranking can
+be interpreted by the same relative quality distance, termed
+the quality margin. At the objective level, regression fits
+margins induced by pointwise endpoints together with a
+dataset-anchor term, while Thurstone-style ranking [31] fits
+transformed margins through preference probabilities. We
+further connect this observation with the target metric of
+BIQA, showing that margin alignment bridges regression
+and ranking through the relational quality structure measured by PLCC. Based on this view, we propose MR-IQA.
+Given a group of images, MR-IQA models the quality margin for every image pair within the group, suppressing the
+dataset-anchor interference inherited from regression, simplifying the ranking loss, and restoring the continuous distance information ignored by preference-only supervision.
+
+2.2. Ranking-based BIQA
+Gao et al. [9] introduce learning-to-rank into BIQA, and
+dipIQ [24] further learns from discriminable image pairs.
+RankIQA [22] constructs ranked examples from synthetically distorted images, while RRLW [12] and CLRIQA [27]
+extend the idea to recursive or controllable list-wise ranking. Transformer-based BIQA by Golestaneh et al. [11]
+combines relative ranking with self-consistency, and later
+pairwise formulations such as rank-smoothed pairwise
+learning [30] and PICNIQ [6] further emphasize the usefulness of comparison labels. In MLLM-based BIQA,
+DeQA [38] introduces Thurstone-style [31] fidelity loss
+for ranking. VisualQuality-R1 (VQ-R1) [35] extends this
+method to the RL region. But most ordinary ranking supervision mainly preserves preference direction and leaves the
+relative distance between images weakly specified.
+
+Our main contributions are summarized as:
+• We bridge regression and ranking with a unified quantity,
+quality margin, and theoretically derive why paradigms
+can be viewed as margin-oriented optimization.
+• We instantiate margin learning as MR-IQA, a scalecontrolled RL algorithm that directly evaluates whether
+predicted score gaps are underestimated, calibrated, or
+overestimated with respect to MOS margins.
+• We validate MR-IQA under controlled RL settings across
+six BIQA benchmarks, where it achieves the best average
+performance and provides a margin-based baseline for future RL-based BIQA studies.
+
+2.3. MLLM-based BIQA Training
+MLLM-based BIQA [5, 18–20, 33–35, 37, 38] is mainly
+trained through supervised fine-tuning (SFT) or reinforcement learning (RL). SFT methods such as Q-Align [33],
+DeQA [38], Q-Instruct [34], and DepictQA [37] adapt
+MLLMs with discrete labels, score-bin distributions, or curated instruction responses. This is effective for task adaptation, but when the training data lacks diversity, fixed targets
+can encourage template overfitting and weaken the original
+reasoning behavior of the model. RL instead computes rewards after sampling, allowing continuous values, pairwise
+relations, and reasoning behaviors to be supervised while
+retaining more of the base model’s reasoning capability.
+
+Beyond empirical results, our derivation shows that quality margins connect score calibration with ordinal comparison through a unified relational structure. This view provides a foundation for BIQA and may also inform broader
+quality and ranking tasks such as aesthetic assessment,
+video quality assessment, and learning-to-rank.
+2
+
+3. Method
+
+associated with each image xi is modeled as an imagespecific Gaussian distribution, and different images are assumed independent:
+Z z − t2
+e 2
+∆µij
+√ dt.
+, Φ(z) =
+(7)
+zij = q
+2
+2
+2π
+−∞
+σ +σ
+
+In this section, we first revisit regression and ranking as two
+ways of optimizing margin-related objectives. We then explain why the margin acts as a bridge in relational quality
+structure. Finally, we instantiate margin learning as an RL
+algorithm that directly supervises pairwise margins.
+
+i
+
+∆µij
+
+,
+Pij = Φ q
+σi2 + σj2
+
+Following the statistical quality modeling view in
+DeQA [38] and VQ-R1 [35], we regard the perceived quality of an image xi as a Gaussian variable and define the
+pairwise quality margin between two images xi and xj as
+∆µij = µi − µj .
+
+(1)
+
+3.2. Margin View of Regression
+In this part, we explain why pointwise regression has a
+strong connection with quality margins. For pointwise regression, each image has an endpoint error ei ; for quality
+margins, each image pair has a relational error δij , as defined in Eqs. (2) to (4). We introduce the centered residual
+ẽi to make the dataset mean explicit:
+ẽi = (si − s̄) − (µi − µ̄),
+
+(2)
+
+ei = si − µi = ẽi + (s̄ − µ̄),
+
+(3)
+
+δij = ∆sij − ∆µij = ẽi − ẽj .
+
+(4)
+
+From Eq. (10), the optimal solution of the fidelity loss is
+P̂ij⋆ = Pij . Since Φ(·) in Eq. (7) is strictly monotonic, it is
+invertible. The corresponding predicted and human margins
+can therefore be recovered as
+q
+ 
+∆sij = σ̂i2 + σ̂j2 Φ−1 P̂ij ,
+(11)
+q
+∆µij = σi2 + σj2 Φ−1 (Pij ) .
+Therefore, the optimization direction of fidelity ranking is
+similar to ∆sij ≈ ∆µij . Moreover, VQ-R1 [35] uses a
+hard label, which collapses the continuous probability into a
+discrete target and weaken label-side continuity. We discuss
+the variance-scale issue in Secs. D and E.1. In this sense,
+Thurstone-style ranking also relies on normalized margins.
+
+Under an L2 constraint, the accumulated errors of margin
+learning and pointwise regression can be decomposed as
+2
+δij
+=
+
+i<j
+N
+X
+i=1
+
+N
+X
+X
+ẽ2i ,
+(ẽi − ẽj )2 = N
+i<j
+
+e2i =
+
+(5)
+
+i=1
+
+3.4. Bridge Between Regression and Ranking
+
+XN
+
+ẽ2i + N (s̄ − µ̄)2 .
+i=1
+| {z } | {z }
+margin error
+
+(8)
+
+Here zij is the normalized margin term, Φ(·) is the standard
+normal cumulative distribution function, and Pij represents
+the label-side probability that xi has higher perceived quality than xj under the Thurstone model [31]. Fidelity-based
+ranking models then compare the chosen label-side probability Pij with the prediction-side probability P̂ij . The
+fidelity-based ranking loss is
+q
+q
+(9)
+Lfd,ij = 1 − Pij P̂ij − (1 − Pij )(1 − P̂ij ),
+s
+s
+∂Lfd,ij
+1 Pij
+1 1 − Pij
+=−
++
+.
+(10)
+2
+2
+∂ P̂ij
+P̂ij
+1 − P̂ij
+
+In the rest of this work, we use µ to denote human MOS,
+σ to denote inter-rater standard deviation, and s to denote
+model-sampled quality estimates.
+
+X
+
+
+
+
+
+3.1. Definition of Quality Margins
+
+xi ∼ N (µi , σi2 ),
+
+j
+
+(6)
+
+Sections 3.2 and 3.3 show that both regression and ranking are related to quality margins, but this relation alone
+is not sufficient to explain why margins form a bridge between them. We next show that, in the BIQA setting, the
+bridge role of margins comes from their direct connection
+to relational quality structure. Intuitively, both regression
+and ranking can serve BIQA as long as they recover a reliable relational quality structure. From a theoretical view,
+this structure is commonly evaluated by PLCC between estimated scores and human MOS. Given N images, PLCC is
+defined as
+PN
+n=1 (sn − s̄)(µn − µ̄)
+qP
+,
+PLCC(s, µ) = qP
+N
+N
+2
+2
+(s
+−
+s̄)
+(µ
+−
+µ̄)
+n
+n
+n=1
+n=1
+(12)
+
+dataset-anchor
+
+Thus, pointwise regression can be viewed as optimizing two
+coupled parts: margin-error fitting and dataset-anchor learning. The global prediction shift s̄ − µ̄ can become restrictive under cross-dataset calibration shifts. Removing the
+dataset-anchor learning should benefit generalization.
+
+3.3. Margin View of Ranking
+In this part, we show the relation between ranking and margin learning by analyzing the optimization objective with
+a general ranking method as an example. Thurstone-style
+ranking is a representative formulation in BIQA [31, 35,
+38]. Under Thurstone Case III [31], the discriminal score
+3
+
+N Images
+
+K Sampling
+(𝟏)
+
+𝒔𝟏
+
+Margin Learning
+mean score
+𝒔𝟏
+
+(𝐊)
+
+⋯ 𝒔𝟏
+
+x1
+
+Group Advantage
+
+(1) Pairwise Margin Reward
+(1)
+
+𝑅𝑖
+
+human
+
+1
+
+3
+(𝟏)
+𝒔𝒊
+
+xi
+
+⋯
+
+5
+
+1
+
+3
+
+1
+
+3
+(𝟏)
+𝒔𝒋
+
+⋯
+
+𝒔𝒊
+5
+
+1
+
+3
+
+⋮
+
+3
+
+5
+
+1
+
+xn
+1
+
+5
+
+(K)
+
+3
+
+5
+
+(k,j)
+
+𝑟𝑖
+
+GRPO
+
+(k,1)
+
+(k,j)
+
+𝑟𝑖
+
+𝒔𝒏
+1
+
+𝑅𝑖
+
+3
+
+(k)
+
+𝑟𝑖
+
+⋮
+(𝐊)
+
+5
+
+⋮
+
+(2) Aggregation over N-1 Pairs
+
+⋯ 𝒔𝒏
+
+3
+
+(𝑅𝑖 , 𝜎𝑟 )
+
+(k)
+
+(si −തsj ) − (𝜇i −𝜇j )
+𝜏
+
+Margin Error
+
+𝒔𝒋
+
+⋮
+(𝟏)
+
+𝒔𝒏
+
+(k)
+
+Gaussian Reward
+
+(𝐊)
+𝒔𝒋
+
+xj
+1
+
+𝜇i −𝜇j
+
+𝑅𝑖
+
+(𝐊)
+𝒔𝒊
+
+(𝐤)
+𝒔𝒊
+
+Policy
+Model
+
+5
+
+𝐴𝑖
+(k)
+
+𝑅𝑖
+
+=
+
+σ 𝑟𝑖(𝑘,n)
+𝑁−1
+
+(k)
+
+(k)
+
+𝐴𝑖
+
+⋮
+
+5
+
+=
+
+𝑅𝑖 − 𝑅𝑖
+𝜎𝑟 + 𝜀
+
+(k,N)
+𝑟𝑖
+
+Policy Update
+Figure 2. MR-IQA training pipeline. For a group of N images, the policy model samples K quality-score completions per image and
+(k)
+forms image-level mean predictions. For one completion si , margin learning compares its predicted margin to the MOS margin against
+(k)
+each other image, converts the margin error into a Gaussian pairwise reward, and aggregates the resulting N −1 rewards into Ri . Group
+(k)
+Relative Policy Optimization (GRPO) [28] then normalizes the sampled rewards into the advantage Ai for policy update.
+
+where s = (s1 , . . . , sN ), µ = (µ1 , . . . , µN ), s̄ and µ̄ denote their sample means, and ∆sij = si − sj denotes the
+predicted margin for each image pair i < j. The connection becomes exact after expanding the centered covariance
+term.1 Specifically,
+X
+
+∆sij ∆µij = N
+
+N
+X
+
+(sn − s̄)(µn − µ̄).
+
+This equivalence theoretically explains the effectiveness
+of regression and ranking for BIQA. It also provides a new
+perspective: the underlying logic or optimization target of
+both regression and ranking is quality margin fitting. Therefore, directly modeling quality margins may provide a more
+direct and effective way to estimate quality structure.
+
+(13)
+
+3.5. Modeling Pairwise Margin in BIQA
+
+n=1
+
+i<j
+
+We illustrate the concrete margin-learning pipeline in Fig. 2.
+Consider a group of N images G = {xi }N
+i=1 , where each
+image xi is annotated with a MOS mean µi . Following the
+margin definition in Eq. (1), sufficient pairwise margins can
+describe the relative quality structure within the group.
+For each image xi , the policy samples K completions
+(k)
+and produces scalar quality scores {si }K
+k=1 . We summarize the sampled scores of each image by their mean value:
+
+The corresponding variance terms can be written as
+N
+X
+
+(sn − s̄)2 =
+
+n=1
+N
+X
+n=1
+
+(µn − µ̄)2 =
+
+1 X
+(∆sij )2 ,
+N i<j
+
+(14)
+
+1 X
+(∆µij )2 .
+N i<j
+
+(15)
+
+Using Eqs. (13) to (15) in Eq. (12) shows that PLCC is
+equivalent to the cosine similarity between predicted and
+human margin vectors:
+P
+i<j ∆sij ∆µij
+qP
+PLCC(s, µ) = qP
+2
+2
+(16)
+i<j (∆sij )
+i<j (∆µij )
+
+K
+
+s̄i =
+
+1 X (k)
+si .
+K
+
+(17)
+
+k=1
+
+For the pairwise construction of completion k from image xi , we choose any comparison image xj with j ̸= i and
+compare the sampled score against the sampled mean of xj :
+
+= cosine({∆sij }i<j , {∆µij }i<j ) .
+
+(k)
+
+1 A detailed derivation of Eq. (13) is provided in Sec. A.
+
+(k)
+
+∆sij = si
+4
+
+− s̄j .
+
+(18)
+
+s̄j for all j ̸= i, and then normalizes rewards across completions of the same image:
+
+To separate margin modeling from the choice of error scale,
+we define a scale-controlled margin error:
+(k)
+∆sij − ∆µij
+(k)
+.
+zij =
+τij
+
+(19)
+
+(k)
+
+Ai
+
+where τij is a positive scale
+q term. We consider two choices:
+
+(k)
+
+− zij
+
+(k)
+
+,
+
+
+
+(k) 2
+− 12 zij
+
+(k)
+
+rL2 ,ij = e
+
+.
+
+(k)
+
+clip(ρi , 1−ϵclip , 1+ϵclip ), the clipped GRPO objective is
+h
+
+
+(k) (k) (k) (k)
+LGRPO (θ) = − E min ρi Ai , ρi,c Ai
+i
+− βKL KL(πθ ∥ πref ) ,
+
+(20)
+
+4. Experiments
+4.1. Experimental Setup
+
+The pairwise identities in Sec. 3.4 use i < j only to enumerate each unordered pair once. In the training pipeline, xi
+(k)
+is the queried image, so completion si is compared with
+every other image in the group; no ordering constraint is
+imposed, except that j ̸= i.
+For a group of N images, each queried image xi forms
+N −1 pairwise comparisons with the other images. We aggregate these pairwise rewards directly into the final training reward:
+(k)
+
+= rformat,i +
+
+(23)
+
+where ϵclip is the GRPO clipping range and βKL controls
+reference-policy regularization. Larger values strengthen
+this regularization, trading adaptation for stability.
+
+3.6. Image-Level Reward
+
+(k)
+
+(22)
+
+(k)
+
+The L1 form corresponds to a unit-scale Laplace likelihood
+with the constant factor omitted, while the L2 estimator corresponds to a unit-variance Gaussian error model. The L1
+estimator is more robust to large normalized errors, while
+the L2 estimator applies stronger pressure to large deviations; we use them as reward-design ablations.
+
+Ri
+
+=
+
+where Ai is the advantage for completion k. A completion with above-average margin consistency receives a
+positive advantage and is reinforced, while a lower-reward
+(k)
+completion is suppressed. With the importance ratio ρi =
+(k)
+(k)
+(k)
+πθ (oi | xi )/πθold (oi | xi ) and its clipped version ρi,c =
+
+raw
+unc
+τij
+= 1 and τij
+=
+σi2 + σj2 . The raw version penalizes the absolute mismatch between predicted and MOS
+margins, while the uncertainty-normalized version measures the mismatch relative to inter-rater disagreement.
+We convert this error into reward with zero-centered
+margin estimators:
+
+rL1 ,ij = e
+
+
+
+(l)
+− meanl Ri
+
+
+,
+(l)
+stdl Ri + ε
+
+(k)
+
+Ri
+
+N
+1 X (k)
+r
+.
+N − 1 j=1 margin,ij
+
+Datasets. We train all controlled models only on the
+training split of KonIQ-10k [13], which contains 7,046
+in-the-wild images at 512×384 resolution. Evaluation
+is performed on the KonIQ test split (N =2,010) [13]
+as the in-distribution authentic benchmark. For outof-distribution (OOD) evaluation, we use authentic distortion datasets SPAQ (N =11,125) [8] and LIVEChallenge (N =1,169) [10], the AI-generated image quality dataset AGIQA-3K (N =2,982) [17], and synthetic distortion datasets KADID-10k (N =10,125) [21] and CSIQ
+(N =866) [16].
+
+(21)
+
+j̸=i
+
+Implementation details. We initialize the policy model
+from Qwen3-VL-2B [2] and perform full-parameter finetuning with GRPO (Eq. (23)). The backbone variants are
+drawn from Qwen3-VL [2] and Qwen2.5-VL [3]. We use
+AdamW [23] with learning rate 1×10−5 , zero weight decay,
+and momentum parameters β1 = 0.9, β2 = 0.999. Runs
+use random seed 42. For GRPO [28], we use N = 8 images as a group, sample K = 6 completions per image, set
+βKL = 0.02, use temperature 0.7, and perform four iterations per batch. Training runs for 10 epochs on 8× NVIDIA
+A6000 GPUs with per-device batch size 48 generated completions; the per-epoch wall-clock time is approximately 57
+minutes for Qwen3-VL-2B [2], 1 h 54 min for Qwen3-VL4B [2], and 2 h for Qwen2.5-VL-7B [3].
+
+(k)
+where rmargin,ij can be instantiated by either the L1 or L2
+(k)
+estimator in Eq. (20). The format reward rformat,i checks
+
+whether the response follows the required answer format
+and whether the score can be parsed.
+
+3.7. Group Relative Policy Optimization
+Following DeepSeek-Math [28], we use Group Relative
+Policy Optimization (GRPO) as the policy-update algorithm. GRPO converts the scalar rewards above into relative advantages for policy update. In one training rollout
+(Fig. 2), the policy samples Ki completions for each xi ,
+(k)
+(k)
+parses their scores, computes Ri by comparing si with
+5
+
+Table 1. Main benchmark comparison. All methods report PLCC↑ and SRCC↑ between predicted and ground-truth scores. Red numbers
+indicate overall best results; Blue numbers indicate RL-block best results not already marked in red. Except for the reported Q-Insight [18]
+row, RL-training models are reproduced under the controlled reproduction protocol with Qwen3-VL-2B [2] as the backbone MLLM.
+Authentic
+KonIQ
+
+SPAQ
+
+AI-generated
+LIVE-W
+
+AGIQA-3K
+
+Synthetic
+KADID-10k
+
+Average
+CSIQ
+
+Avg.
+
+Method
+
+PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC
+
+Hand-crafted
+NIQE [26]
+BRISQUE [25]
+
+0.533 0.530 0.679 0.664 0.493 0.449 0.560 0.533 0.468 0.405 0.718 0.628 0.575 0.535
+0.225 0.226 0.490 0.406 0.361 0.313 0.541 0.497 0.429 0.356 0.740 0.556 0.464 0.392
+
+Deep-learning-based
+NIMA [29]
+DBCNN [39]
+MUSIQ [15]
+MANIQA [36]
+CLIP-IQA+ [32]
+
+0.896
+0.884
+0.924
+0.849
+0.909
+
+MLLM-based: SFT training
+C2Score [41]
+0.923
+Q-Align [33]
+0.941
+DeQA [38]
+0.953
+MLLM-based: RL training
+Q-Insight (regression) [18] 0.918
+VQ-R1 (ranking) [35]
+0.886
+MR-IQA (ours)
+0.949
+
+0.859
+0.875
+0.929
+0.834
+0.895
+
+0.838
+0.812
+0.868
+0.768
+0.866
+
+0.856
+0.806
+0.863
+0.758
+0.864
+
+0.814
+0.773
+0.789
+0.849
+0.832
+
+0.771
+0.730
+0.830
+0.832
+0.805
+
+0.715
+0.641
+0.722
+0.723
+0.736
+
+0.654
+0.648
+0.630
+0.636
+0.685
+
+0.532
+0.497
+0.575
+0.499
+0.653
+
+0.535
+0.484
+0.556
+0.465
+0.654
+
+0.695
+0.586
+0.771
+0.623
+0.772
+
+0.649
+0.572
+0.710
+0.627
+0.719
+
+0.748
+0.699
+0.775
+0.719
+0.795
+
+0.721
+0.686
+0.753
+0.692
+0.770
+
+0.910 0.867 0.860 0.786 0.772 0.777 0.671 0.500 0.453 0.735 0.705 0.765 0.729
+0.940 0.886 0.887 0.853 0.860 0.772 0.735 0.674 0.684 0.671 0.737 0.800 0.807
+0.941 0.895 0.896 0.892 0.879 0.809 0.729 0.694 0.687 0.787 0.744 0.838 0.813
+0.895 0.903 0.903 0.870 0.839 0.816 0.766 0.702 0.702 0.685 0.640 0.816 0.791
+0.919 0.867 0.887 0.817 0.869 0.744 0.718 0.635 0.640 0.709 0.721 0.776 0.792
+0.931 0.892 0.897 0.899 0.883 0.804 0.732 0.672 0.683 0.767 0.732 0.831 0.810
+
+Fair comparison protocol. Our controlled comparison
+focuses on general BIQA models under a fixed KonIQ-only
+training protocol [13]. Methods whose training pipelines
+rely on additional data, teacher distillation, non-matched
+protocols, or unavailable implementation code are treated as
+complementary literature rather than controlled baselines.
+
+R1 and MR-IQA are evaluated under the controlled Qwen3VL-2B [2] reproduction because the original VQ-R1 protocol is not matched. MR-IQA obtains the best average RL
+performance. At the same time, Q-Insight remains stronger
+on AGIQA-3K [17] and KADID-10k [21]. Since these gaps
+may be affected by backbone and training environment differences, Sec. 4.4 further compares regression, ranking, and
+margin learning under matched backbone settings.
+
+4.2. Main Results
+
+4.3. Ablation Study
+
+Compared model families. Tab. 1 compares MR-IQA
+with representative BIQA families. The hand-crafted
+group includes NIQE [26] and BRISQUE [25]; the deeplearning-based group includes NIMA [29], DBCNN [39],
+MUSIQ [15], MANIQA [36], and CLIP-IQA+ [32]. For
+MLLM-based BIQA, we separate SFT methods, including C2Score [41], Q-Align [33], and DeQA [38], from RL
+methods, including Q-Insight [18], and VQ-R1 [35].
+Competitive overall performance. Across all methods,
+MR-IQA reaches an average PLCC/SRCC of 0.831/0.810,
+which is close to the strong SFT-based model DeQA [38] at
+0.838/0.813. This gap is notable because MR-IQA remains
+an RL-based model and can preserve response-level quality
+reasoning behavior. We argue that quality margin learning
+has the potential to approach DeQA [38] with delicate optimization, because DeQA [38] adopts a joint loss.
+RL-based comparison. Within the RL-training block, QInsight [18] is included as the regression representative using its reported Qwen2.5-VL-7B [3] performance, while
+VQ-R1 [35] is included as the ranking representative. VQ-
+
+Reward function. Under the Qwen3-VL-2B [2] baseline,
+we compare the L1 and L2 margin estimators with two
+scale choices: the raw margin
+q scale τij = 1 and the human-
+
+unc
+uncertainty scale τij
+= σi2 + σj2 . The raw-margin L2
+design achieves the best overall performance, with average
+PLCC/ SRCC gains of 0.135/0.120 over the baseline.
+In contrast, human-uncertainty normalization does not
+consistently improve the results, suggesting that inter-rater
+variance is not always a reliable training-time margin scale.
+
+4.4. Backbone and Algorithm Stability
+To examine whether the gap between MR-IQA and regression/ranking algorithms depends on a specific backbone,
+Tab. 3 evaluates the algorithm families on Qwen3-VL2B/4B [2] and Qwen2.5-VL-7B [3]. Qwen2.5-VL-7B [3] is
+the backbone used by the original Q-Insight [18] and VQR1 [35] settings. Except for the Qwen2.5-VL-7B [3] Q6
+
+Table 2. Margin-reward ablation. We use Qwen3-VL-2B [2] as the ablation backbone and follow the same training and testing protocol
+as in Sec. 4.1. Theq
+table evaluates combinations of L1 or L2 margin errors with two margin scales: τij = 1 denotes the raw margin-error
+
+unc
+scale, and τij
+= σi2 + σj2 denotes the uncertainty-normalized scale. Red numbers indicate the best result for each metric. Overall, the
+L2 variant with τij = 1 achieves the best average PLCC/SRCC.
+
+Authentic
+KonIQ
+Variant
+
+SPAQ
+
+AI-generated
+LIVE-W
+
+AGIQA-3K
+
+Synthetic
+KADID-10k
+
+Average
+CSIQ
+
+Avg.
+
+PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC
+
+Baseline
+0.685
+MR-IQA (L1 , τij = 1) 0.915
+unc )
+MR-IQA (L1 , τij
+0.934
+MR-IQA (L2 , τij = 1) 0.949
+unc )
+MR-IQA (L2 , τij
+0.933
+
+0.669
+0.916
+0.922
+0.931
+0.923
+
+0.780
+0.879
+0.875
+0.892
+0.883
+
+0.797
+0.881
+0.891
+0.897
+0.885
+
+0.717
+0.811
+0.870
+0.899
+0.853
+
+0.722
+0.837
+0.851
+0.883
+0.849
+
+0.733
+0.777
+0.808
+0.804
+0.800
+
+0.691
+0.710
+0.715
+0.732
+0.711
+
+0.565
+0.604
+0.557
+0.672
+0.602
+
+0.551
+0.605
+0.601
+0.683
+0.631
+
+0.696
+0.692
+0.736
+0.767
+0.730
+
+0.707
+0.691
+0.705
+0.732
+0.712
+
+0.696
+0.780
+0.797
+0.831
+0.800
+
+0.690
+0.773
+0.781
+0.810
+0.785
+
+Table 3. Backbone stability. Training and testing follow the protocol in Sec. 4.1, except that Q-Insight with Qwen2.5-VL-7B follows its
+original settings [18]. Backbone labels denote Qwen3-VL-2B/4B [2] and Qwen2.5-VL-7B [3]. For MR-IQA, we use the L2 reward with
+τij = 1. Gray rows mark our method, and red numbers indicate the best result under the same backbone.
+
+Authentic
+Backbone
+
+Reward
+
+KonIQ
+
+SPAQ
+
+AI-generated
+LIVE-W
+
+AGIQA-3K
+
+Synthetic
+KADID-10k
+
+Average
+CSIQ
+
+Avg.
+
+PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC
+Qwen3-2B
+
+Baseline 0.685
+Q-Insight 0.934
+VQ-R1
+0.886
+MR-IQA 0.949
+
+0.669
+0.923
+0.919
+0.931
+
+0.780
+0.883
+0.867
+0.892
+
+0.797
+0.886
+0.887
+0.897
+
+0.717
+0.872
+0.817
+0.899
+
+0.722
+0.863
+0.869
+0.883
+
+0.733
+0.800
+0.744
+0.804
+
+0.691
+0.731
+0.718
+0.732
+
+0.565
+0.652
+0.635
+0.672
+
+0.551
+0.673
+0.640
+0.683
+
+0.696
+0.759
+0.709
+0.767
+
+0.707
+0.752
+0.721
+0.732
+
+0.696
+0.817
+0.776
+0.831
+
+0.690
+0.805
+0.792
+0.810
+
+Qwen3-4B
+
+Baseline 0.748
+Q-Insight 0.934
+VQ-R1
+0.931
+MR-IQA 0.945
+
+0.688
+0.918
+0.924
+0.927
+
+0.873
+0.886
+0.886
+0.893
+
+0.875
+0.888
+0.889
+0.895
+
+0.771
+0.868
+0.849
+0.876
+
+0.757
+0.857
+0.873
+0.870
+
+0.794
+0.806
+0.779
+0.793
+
+0.737
+0.720
+0.710
+0.710
+
+0.649
+0.590
+0.627
+0.670
+
+0.666
+0.618
+0.642
+0.695
+
+0.785
+0.724
+0.673
+0.758
+
+0.750
+0.701
+0.683
+0.747
+
+0.770
+0.801
+0.791
+0.823
+
+0.745
+0.784
+0.787
+0.807
+
+Qwen2.5-7B Baseline 0.741
+Q-Insight 0.920
+VQ-R1
+0.897
+MR-IQA 0.950
+
+0.684
+0.907
+0.921
+0.936
+
+0.872
+0.886
+0.849
+0.861
+
+0.871
+0.884
+0.891
+0.862
+
+0.772
+0.878
+0.761
+0.888
+
+0.742
+0.851
+0.858
+0.877
+
+0.811
+0.806
+0.774
+0.818
+
+0.753
+0.767
+0.754
+0.756
+
+0.601
+0.629
+0.662
+0.669
+
+0.581
+0.699
+0.675
+0.669
+
+0.699
+0.687
+0.517
+0.702
+
+0.652
+0.634
+0.605
+0.681
+
+0.750
+0.801
+0.743
+0.815
+
+0.714
+0.790
+0.784
+0.797
+
+5. Discussion
+
+Insight [18] run, which follows its official training script,
+the controlled RL rows use matched data and hyperparameter settings under the protocol in Sec. 4.1. Under these
+controlled settings, margin learning achieves the strongest
+average PLCC/SRCC across the tested backbones, indicating that its gains over regression and ranking algorithms are
+not tied to a single model scale nor a specific backbone.2
+
+Why variance not always helpful?
+In the Thurstone model [31], variance characterizes the instability of an image’s perceived quality distribution. In
+BIQA, this instability is usually observed as inter-rater variance. A natural expectation is therefore that variance should
+help calibrate margin learning by down-weighting uncertain image pairs. However, our controlled ablation in Tab. 2
+shows that using inter-rater variance as the normalization
+scale does not consistently improve performance. In other
+Thurstone-style models, DeQA [38] uses a fixed variance
+during training, whereas VQ-R1 [35] uses model sampling
+variance rather than human variance.
+Possible reasons. (1) There is a human-model mismatch.
+Human inter-rater variance can be large because individuals have different perceptual preferences and annotation
+habits. Model sampling variance is usually much smaller
+because stable score generation is itself a desirable behav-
+
+4.5. Case Study
+Figure 3 compares Q-Insight (regression) [18], VQ-R1
+(ranking) [35], and MR-IQA on in- and out-of-distribution
+samples. MR-IQA may show dataset-anchor shifts without
+pointwise MOS regression, but it estimates relative margins
+more accurately than both baselines and identifies correct
+perceptual evidence earlier.
+2 Additional ablation studies and training dynamics are provided in Appendix Secs. B and C.
+
+7
+
+Case 1: In-distribution
+
+Case 2: Out-of-distribution
+
+Image A: 𝜇A = 3.75 ∆𝜇AB = 0.40 Image B: 𝜇B = 3.35
+
+Image C: 𝜇C = 2.96 ∆𝜇CD = 0.64 Image D: 𝜇D = 2.32
+
+Regression: ∆sAB = 0.00 ×
+Image A: The moon is out of focus, with a noticeable graininess. The moon is
+well-exposed, the details are not sharp. Quality is moderate [...] Rating: 3.67.
+
+Regression: ∆sCD = 0.00 ×
+Image C: The sharpness is moderate, with some blurriness in the background.
+Quality is not high due to the blur and noise. [...] Rating: 3.83.
+
+Image B: The sharpness is moderate, with blurriness and a lack of fine detail
+in the architectural structure. The quality is moderate. [...] Rating: 3.67.
+
+Image D: The overall sharpness is moderate, with some fine details. There is
+noticeable noise. The image is free of significant distortion. [...] Rating: 3.83.
+
+Ranking: ∆sAB = 0.50 √
+Image A: A low overall clarity, with significant noise and a poor color. The
+background is dark and lacks detail. The overall quality is poor.[...] Rating: 3.75.
+
+Ranking: ∆𝑠𝐶𝐷 = 0.00 ×
+Image C: A low overall clarity, with significant noise and a poor color. The
+lighting is harsh, and the colors are oversaturated. [...] Rating: 3.83.
+
+Image B: A low overall clarity, with significant noise and a poor color. The
+lighting is harsh. The overall quality is poor. [...] Rating: 3.25.
+
+Image D: A low overall clarity, with significant noise and a poor color. The
+lighting is harsh, and the colors are oversaturated. [...] Rating: 3.83.
+
+MR-IQA: ∆sAB = 0.40 √
+Image A: The image has a good detail. The background is dark, which helps to
+highlight the moon. The quality is good.[...] Rating: 4.00.
+
+MR-IQA: ∆sCD = 0.60 √
+Image C: A clear focus on the spheres, with a good sense of depth and texture.
+Blurred background draws attention to the subject. [...] Rating: 4.10.
+
+Image B: The image has a low resolution and is blurry. The lighting is not good,
+and the details are not sharp. The quality is not very good. [...] Rating: 3.60.
+
+Image D: The image has a low resolution. The image has a high level of noise.
+The overall quality is not very high.. [...] Rating: 3.50.
+
+Figure 3. Qualitative case study of three algorithms. We compare reproduced Q-Insight regression [18], VQ-R1 ranking [35], and
+MR-IQA (ours), all using Qwen3-VL-2B [2] as the backbone. The in-distribution examples are sampled from KonIQ [13], and the out-ofdistribution examples are sampled from KADID-10k [21]. Red highlights potential perceptual or scoring errors, while green marks correct
+perceptual evidence. Overall, MR-IQA aligns visual evidence and MOS margins more robustly across distributions, whereas the ranking
+baseline shows signs of perceptual overfitting on the out-of-distribution samples.
+
+7. Conclusion
+
+ior for BIQA models. (2) Model variance may not be fully
+captured by repeated sampled scalar outputs. A more faithful uncertainty estimate may need token-level alternatives.
+(3) Dataset-level variance behavior differs strongly; see Appendix Sec. D. (4) The standard BIQA metrics, PLCC and
+SRCC, evaluate mean score prediction and rank order rather
+than predictive variance. From the evaluation perspective,
+variance may describe reliability or ambiguity, but it is not
+directly rewarded by the metrics.
+
+This work revisits regression and ranking in BIQA through
+the lens of quality margins. We show that pointwise regression fits pairwise margins together with a dataset-anchor
+term, while Thurstone-style ranking fits transformed margins through preference probabilities. Together with the
+pairwise form of PLCC, this reveals margin fitting as a
+shared mechanism behind score calibration and ordinal
+comparison. Guided by this view, we propose MR-IQA, an
+RL-based framework that directly rewards calibrated MOS
+margins from sampled scores. Across general BIQA benchmarks and controlled comparisons, MR-IQA achieves competitive overall performance. Overall, this unified margin
+view explains why previous joint regression and ranking
+designs can be effective and provides a foundation for future optimization methods that directly model quality structure. It further turns the empirical complementarity between
+score calibration and ordinal comparison into an explicit optimization principle for future BIQA design.
+
+6. Limitations and Future Work
+This work has several limitations. First, inter-rater variance did not consistently improve margin learning, although
+uncertainty may still encode reliability or ambiguity. Second, experiments mainly use Qwen-family MLLMs; testing other MLLMs and non-MLLM backbones is needed
+for generality and efficiency. Third, margin learning needs
+sufficient pair coverage and sampled completions, so small
+datasets may yield noisy margins. Finally, we do not deeply
+analyze visual-quality reasoning; future work should examine reasoning traces, and attribute-level explanations.
+
+8
+
+References
+
+the AAAI conference on artificial intelligence, pages 8336–
+8343, 2019.
+[13] Vlad Hosu, Hanhe Lin, Tamas Sziranyi, and Dietmar Saupe.
+Koniq-10k: An ecologically valid database for deep learning
+of blind image quality assessment. IEEE Transactions on
+Image Processing, 29:4041–4056, 2020.
+[14] Le Kang, Peng Ye, Yi Li, and David Doermann. Convolutional neural networks for no-reference image quality assessment. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, pages 1733–1740, 2014.
+[15] Junjie Ke, Qifei Wang, Yilin Wang, Peyman Milanfar, and
+Feng Yang. Musiq: Multi-scale image quality transformer.
+In Proceedings of the IEEE/CVF international conference on
+computer vision, pages 5148–5157, 2021.
+[16] Eric C Larson and Damon M Chandler. Most apparent distortion: full-reference image quality assessment and the role
+of strategy. Journal of electronic imaging, 19(1):011006–
+011006, 2010.
+[17] Chunyi Li, Zicheng Zhang, Haoning Wu, Wei Sun,
+Xiongkuo Min, Xiaohong Liu, Guangtao Zhai, and Weisi
+Lin. Agiqa-3k: An open database for ai-generated image
+quality assessment. IEEE Transactions on Circuits and Systems for Video Technology, 34(8):6833–6846, 2023.
+[18] Weiqi Li, Xuanyu Zhang, Shijie Zhao, Yabin Zhang, Junlin
+Li, Jian Zhang, et al. Q-insight: Understanding image quality via visual reinforcement learning. Advances in Neural
+Information Processing Systems, 38:36802–36827, 2026.
+[19] Yuan Li, Yahan Yu, Youyuan Lin, Yong-Hao Yang, Chenhui Chu, and Shin’ya Nishida. Guiding perception-reasoning
+closer to human in blind image quality assessment. arXiv
+preprint arXiv:2512.16484, 2025.
+[20] Guoqiang Liang, Jianyi Wang, Zhonghua Wu, and
+Shangchen Zhou. Zoom-iqa: Image quality assessment
+with reliable region-aware reasoning.
+arXiv preprint
+arXiv:2601.02918, 2026.
+[21] Hanhe Lin, Vlad Hosu, and Dietmar Saupe. Kadid-10k:
+A large-scale artificially distorted iqa database. In 2019
+Eleventh International Conference on Quality of Multimedia
+Experience (QoMEX), pages 1–3. IEEE, 2019.
+[22] Xialei Liu, Joost Van De Weijer, and Andrew D Bagdanov.
+Rankiqa: Learning from rankings for no-reference image
+quality assessment. In Proceedings of the IEEE international
+conference on computer vision, pages 1040–1049, 2017.
+[23] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101, 2017.
+[24] Kede Ma, Wentao Liu, Tongliang Liu, Zhou Wang, and
+Dacheng Tao. dipiq: Blind image quality assessment by
+learning-to-rank discriminable image pairs. IEEE Transactions on image processing, 26(8):3951–3964, 2017.
+[25] Anish Mittal, Anush Krishna Moorthy, and Alan Conrad
+Bovik. No-reference image quality assessment in the spatial
+domain. IEEE Transactions on image processing, 21(12):
+4695–4708, 2012.
+[26] Anish Mittal, Rajiv Soundararajan, and Alan C Bovik. Making a “completely blind” image quality analyzer. IEEE Signal processing letters, 20(3):209–212, 2012.
+
+[1] Lorenzo Agnolucci, Leonardo Galteri, Marco Bertini, and
+Alberto Del Bimbo. Arniqa: Learning distortion manifold for image quality assessment. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision, pages 189–198, 2024.
+[2] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui
+Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao,
+Chunjiang Ge, et al. Qwen3-vl technical report. arXiv
+preprint arXiv:2511.21631, 2025.
+[3] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin
+Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun
+Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu,
+Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng,
+Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin.
+Qwen2.5-vl technical report, 2025.
+[4] Simone Bianco, Luigi Celona, Paolo Napoletano, and Raimondo Schettini. On the use of deep learning for blind image
+quality assessment. Signal, Image and Video Processing, 12
+(2):355–362, 2018.
+[5] Zhuoxuan Cai, Jian Zhang, Xinbin Yuan, Peng-Tao Jiang,
+Wenxiang Chen, Bowen Tang, Lujian Yao, Qiyuan Wang,
+Jinwen Chen, and Bo Li. Q-ponder: A unified training pipeline for reasoning-based visual quality assessment.
+arXiv preprint arXiv:2506.05384, 2025.
+[6] Nicolas Chahine, Sira Ferradans, and Jean Ponce. Pairwise comparisons are all you need.
+arXiv preprint
+arXiv:2403.09746, 2024.
+[7] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929, 2020.
+[8] Yuming Fang, Hanwei Zhu, Yan Zeng, Kede Ma, and Zhou
+Wang. Perceptual quality assessment of smartphone photography. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 3677–3686,
+2020.
+[9] Fei Gao, Dacheng Tao, Xinbo Gao, and Xuelong Li. Learning to rank for blind image quality assessment. IEEE transactions on neural networks and learning systems, 26(10):
+2275–2290, 2015.
+[10] Deepti Ghadiyaram and Alan C Bovik. Live in the wild
+image quality challenge database. Online: http://live. ece.
+utexas. edu/research/ChallengeDB/index. html [Mar, 2017],
+2(5):6, 2015.
+[11] S Alireza Golestaneh, Saba Dadsetan, and Kris M Kitani.
+No-reference image quality assessment via transformers, relative ranking, and self-consistency. In Proceedings of the
+IEEE/CVF winter conference on applications of computer
+vision, pages 1220–1230, 2022.
+[12] Jie Gu, Gaofeng Meng, Cheng Da, Shiming Xiang, and
+Chunhong Pan. No-reference image quality assessment with
+reinforcement recursive list-wise ranking. In Proceedings of
+
+9
+
+[39] Weixia Zhang, Kede Ma, Jia Yan, Dexiang Deng, and Zhou
+Wang. Blind image quality assessment using a deep bilinear
+convolutional neural network. IEEE Transactions on Circuits and Systems for Video Technology, 30(1):36–47, 2018.
+[40] Shijie Zhao, Xuanyu Zhang, Weiqi Li, Junlin Li, Li Zhang,
+Tianfan Xue, and Jian Zhang. Reasoning as representation:
+Rethinking visual reinforcement learning in image quality
+assessment. arXiv preprint arXiv:2510.11369, 2025.
+[41] Hanwei Zhu, Haoning Wu, Yixuan Li, Zicheng Zhang, Baoliang Chen, Lingyu Zhu, Yuming Fang, Guangtao Zhai,
+Weisi Lin, and Shiqi Wang. Adaptive image quality assessment via teaching large multimodal model to compare.
+Advances in Neural Information Processing Systems, 37:
+32611–32629, 2024.
+
+[27] Fu-Zhao Ou, Yuan-Gen Wang, Jin Li, Guopu Zhu, and
+Sam Kwong. Controllable list-wise ranking for universal no-reference image quality assessment. arXiv preprint
+arXiv:1911.10566, 2019.
+[28] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao
+Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li,
+Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint
+arXiv:2402.03300, 2024.
+[29] Hossein Talebi and Peyman Milanfar. Nima: Neural image
+assessment. IEEE transactions on image processing, 27(8):
+3998–4011, 2018.
+[30] Hossein Talebi, Ehsan Amid, Peyman Milanfar, and Manfred K Warmuth. Rank-smoothed pairwise learning in perceptual quality assessment. In 2020 IEEE International
+Conference on Image Processing (ICIP), pages 3413–3417.
+IEEE, 2020.
+[31] Louis L Thurstone. A law of comparative judgment. Psychological review, 101(2):266, 1994.
+[32] Jianyi Wang, Kelvin CK Chan, and Chen Change Loy. Exploring clip for assessing the look and feel of images. In Proceedings of the AAAI conference on artificial intelligence,
+pages 2555–2563, 2023.
+[33] Haoning Wu, Zicheng Zhang, Weixia Zhang, Chaofeng
+Chen, Chunyi Li, Liang Liao, Annan Wang, Erli Zhang,
+Wenxiu Sun, Qiong Yan, Xiongkuo Min, Guangtao Zhai,
+and Weisi Lin.
+Q-align: Teaching lmms for visual
+scoring via discrete text-defined levels. arXiv preprint
+arXiv:2312.17090, 2023. Equal Contribution by Wu, Haoning and Zhang, Zicheng. Corresponding Authors: Zhai,
+Guangtao and Lin, Weisi.
+[34] Haoning Wu, Zicheng Zhang, Erli Zhang, Chaofeng Chen,
+Liang Liao, Annan Wang, Kaixin Xu, Chunyi Li, Jingwen
+Hou, Guangtao Zhai, et al. Q-instruct: Improving low-level
+visual abilities for multi-modality foundation models. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 25490–25500, 2024.
+[35] Tianhe Wu, Jian Zou, Jie Liang, Lei Zhang, and Kede Ma.
+Visualquality-r1: Reasoning-induced image quality assessment via reinforcement learning to rank. Advances in Neural
+Information Processing Systems, 38:88167–88190, 2026.
+[36] Sidi Yang, Tianhe Wu, Shuwei Shi, Shanshan Lao, Yuan
+Gong, Mingdeng Cao, Jiahao Wang, and Yujiu Yang.
+Maniqa: Multi-dimension attention network for no-reference
+image quality assessment. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+pages 1191–1200, 2022.
+[37] Zhiyuan You, Zheyuan Li, Jinjin Gu, Zhenfei Yin, Tianfan
+Xue, and Chao Dong. Depicting beyond scores: Advancing image quality assessment through multi-modal language
+models. In European Conference on Computer Vision, pages
+259–276. Springer, 2024.
+[38] Zhiyuan You, Xin Cai, Jinjin Gu, Tianfan Xue, and Chao
+Dong. Teaching large language models to regress accurate
+image quality scores using score distribution. In Proceedings
+of the Computer Vision and Pattern Recognition Conference,
+pages 14483–14494, 2025.
+
+10
+
+Supplementary Material
+MR-IQA: A Unified Margin View of Regression and Ranking for Blind Image
+Quality Assessment
+
+A. Proof of the Margin Identity
+
+Finally, combining Eq. (5) with Eq. (2) gives
+
+We provide the derivation of the pairwise margincovariance identity in Eq. (13) of the main paper. Let
+
+N
+X
+X
+(si − sj )(µi − µj ) = N
+(sn − s̄)(µn − µ̄).
+i<j
+
+T =
+
+N X
+N
+X
+
+(si − sj )(µi − µj ).
+
+(1)
+
+(6)
+
+n=1
+
+B. Ablation of Group and Sampling Size
+
+i=1 j=1
+
+We further investigate the effect of group size N and sampling number K. The N /K rows of Tab. 1 use the same
+Qwen3-VL-2B [2] backbone, and the same training protocol as in main-paper.
+Overall, the setting with sampling number K = 6 and a
+group size of N = 8 images achieves the best average performance. When K is fixed at 6, a larger group size appears
+more favorable within the tested range. When N is fixed at
+6, K = 6 performs best, but the effect of sampling number
+does not show a clear monotonic trend. Sweeping K under
+a larger group size such as N = 8 is not computationally
+affordable for us and is left for future study.
+
+Each unordered pair (i, j) with i < j appears twice in the
+ordered summation, as (i, j) and (j, i), and the two terms
+have the same product. Therefore,
+X
+X
+T =2
+(si − sj )(µi − µj ) = 2
+∆sij ∆µij . (2)
+i<j
+
+i<j
+
+On the other hand, expanding T gives
+T =
+
+N
+X N
+X
+
+(si µi − si µj − sj µi + sj µj )
+
+i=1 j=1
+
+=N
+
+N
+X
+
+N
+X
+
+si µi −
+
+i=1
+
+
+−
+
+N
+X
+
+i=1
+
+
+
+N
+X
+
+sj 
+
+j=1
+
+= 2N
+
+N
+X
+
+
+! N
+X
+si 
+µj 
+
+C. Training Dynamics
+
+j=1
+
+!
+µi
+
++N
+
+i=1
+
+N
+X
+
+We examine convergence behavior on a diagnostic subset
+of 200 randomly sampled in-domain KonIQ [13] images to
+visualize optimization dynamics. Figure 1 shows that MRIQA converges faster in the in-domain setting. Compared
+with the ranking baseline, this behavior is reasonable because margin learning preserves scale information in addition to ordinal direction. More interestingly, MR-IQA also
+rises faster than the regression baseline. One possible explanation is that regression observes each image as an isolated target, whereas a margin reward compares each image
+with multiple peers in the same group and therefore exposes
+richer relational supervision per update.
+The checkpoint rows in Tab. 1 further compare the
+epoch-3 checkpoint with the epoch-10 checkpoint under the
+same cross-benchmark protocol. The epoch-3 checkpoint
+already performs close to the final checkpoint on several
+benchmarks, suggesting that the model reaches a strong solution early. Continued training still brings modest average
+gains of +0.017 PLCC and +0.013 SRCC, with larger improvements on synthetic datasets. This suggests that later
+epochs primarily refine cross-dataset generalization rather
+than changing the learned in-domain quality structure.
+
+sj µj
+
+j=1
+
+sn µn − 2N 2 s̄µ̄.
+
+(3)
+
+n=1
+
+The centered covariance term satisfies
+N
+X
+
+(sn − s̄)(µn − µ̄)
+
+n=1
+
+=
+
+N
+X
+
+sn µn − µ̄
+
+n=1
+
+=
+
+N
+X
+
+N
+X
+
+sn − s̄
+
+n=1
+
+N
+X
+
+µn + N s̄µ̄
+
+n=1
+
+sn µn − N s̄µ̄.
+
+(4)
+
+n=1
+
+Combining Eqs. (3) and (4) yields
+T = 2N
+
+N
+X
+
+(sn − s̄)(µn − µ̄).
+
+(5)
+
+n=1
+
+11
+
+Table 1. Controlled ablations and epoch generalization. The N /K rows vary only the group size N or sampling number K under the
+protocol of main-paper Table 2; red marks the best performance within each ablation block among available results. The checkpoint rows
+compare the epoch-3 and epoch-10 checkpoints for the default N = 8, K = 6 setting; ∆ reports epoch 10 minus epoch 3.
+
+Authentic
+N
+
+K
+
+KonIQ
+
+AI-generated
+
+SPAQ
+
+LIVE-W
+
+AGIQA-3K
+
+Synthetic
+KADID-10k
+
+Average
+CSIQ
+
+Avg.
+
+PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC PLCC SRCC
+8
+6
+4
+
+6
+6
+6
+
+0.949
+0.945
+0.944
+
+0.931
+0.929
+0.927
+
+0.892
+0.893
+0.890
+
+0.897
+0.896
+0.895
+
+0.899
+0.887
+0.880
+
+0.883
+0.877
+0.868
+
+0.804
+0.805
+0.806
+
+0.732
+0.713
+0.726
+
+0.672
+0.648
+0.646
+
+0.683
+0.655
+0.658
+
+0.767
+0.768
+0.775
+
+0.732
+0.749
+0.742
+
+0.831
+0.824
+0.823
+
+0.810
+0.803
+0.803
+
+6
+6
+6
+
+8
+6
+4
+
+0.911
+0.945
+0.938
+
+0.901
+0.929
+0.923
+
+0.877
+0.893
+0.890
+
+0.876
+0.896
+0.891
+
+0.801
+0.887
+0.871
+
+0.823
+0.877
+0.860
+
+0.779
+0.805
+0.799
+
+0.706
+0.713
+0.708
+
+0.604
+0.648
+0.608
+
+0.603
+0.655
+0.626
+
+0.714
+0.768
+0.768
+
+0.723
+0.749
+0.749
+
+0.781
+0.824
+0.812
+
+0.772
+0.803
+0.793
+
+Epoch 3 0.944
+Epoch 10 0.949
+
+0.931
+0.931
+
+0.892
+0.892
+
+0.897
+0.897
+
+0.890
+0.899
+
+0.878
+0.883
+
+0.804
+0.804
+
+0.722
+0.732
+
+0.620
+0.672
+
+0.656
+0.683
+
+0.732
+0.767
+
+0.697
+0.732
+
+0.814
+0.831
+
+0.797
+0.810
+
+∆
+
++0.005 +0.000 +0.000 +0.000 +0.009 +0.005 +0.000 +0.010 +0.052 +0.027 +0.035 +0.035 +0.017 +0.013
+
+(a) PLCC convergence
+
+0.95
+
+(b) SRCC convergence
+
+0.94
+
+0.90
+
+SRCC
+
+PLCC
+
+0.92
+0.85
+0.80
+
+Regression
+Ranking
+MR-IQA
+
+0.75
+1
+
+3
+
+5
+
+7
+
+0.90
+Regression
+Ranking
+MR-IQA
+
+0.88
+10
+
+1
+
+3
+
+5
+
+7
+
+10
+
+Training epoch
+Training epoch
+Figure 1. Convergence curves on a randomly sampled 200-image in-domain KonIQ [13] diagnostic subset. Curves report PLCC↑ and
+SRCC↑ after each training epoch.
+
+D. Inter-rater Variance Analysis
+
+pattern is not stable: some datasets show higher variance
+around middle quality levels, while others exhibit flatter or
+lower-variance distributions. Thus, a large annotated variance does not always mean that a pairwise quality relation
+should be down-weighted in the same way across datasets.
+These observations do not imply that rater variance is
+useless. Rather, they suggest that the current field mixes
+multiple factors, including observer disagreement, dataset
+protocol, score normalization, and possibly content difficulty. This can explain why variance-aware normalization may underperform or behave inconsistently compared
+with the variant without variance in main-paper Table 2. A
+more reliable use of human uncertainty may require datasetspecific calibration, robust clipping, or richer annotation
+models beyond a Gaussian standard deviation.
+
+We further audit the per-image human disagreement statistics available in the current data manifests. To ensure consistency with the training and evaluation settings, and to
+keep the score scales comparable across datasets, we use
+the normalized statistics provided by DeQA [38]. Figure 2
+visualizes the MOS-conditioned variance distributions for
+KonIQ [13], SPAQ [8], LIVE-W [10], AGIQA-3K [17],
+KADID-10k [21], and CSIQ [16].
+The statistics help explain why directly using manifest
+variance as a human-uncertainty proxy can be fragile. First,
+the absolute variance scale is strongly dataset-dependent:
+LIVE-W [10] and KADID-10k [21] have much larger variance than KonIQ [13], whereas CSIQ [16] has substantially
+lower variance. When such values are placed in the denominator of a normalized margin error, the reward becomes less
+sensitive on high-variance datasets and overly sharp on lowvariance datasets, even if the downstream evaluation only
+uses MOS means. Second, the MOS-conditioned variance
+12
+
+KonIQ train (N=7,046)
+variance σ 2
+
+KonIQ test (N=2,010)
+
+Train
+
+1.5
+
+SPAQ (N=11,125)
+
+Authentic
+
+LIVE-W (N=1,162)
+
+Authentic
+
+Authentic
+
+1.0
+0.5
+0.0
+1
+
+3
+
+MOS (crowdsourcing)
+
+5
+
+1
+
+AGIQA-3K (N=2,982)
+variance σ 2
+
+1.5
+
+3
+
+5
+
+MOS (crowdsourcing)
+
+1
+
+3
+
+MOS (lab)
+
+KADID-10k (N=10,125)
+
+AI-generated
+
+5
+
+1
+
+3
+
+MOS (crowdsourcing)
+
+5
+
+CSIQ (N=866)
+
+Synthetic
+
+Synthetic
+
+1.0
+
+Train
+Authentic
+AI-generated
+Synthetic
+
+0.5
+0.0
+1
+
+3
+
+MOS (lab)
+
+5
+
+1
+
+3
+
+MOS (crowdsourcing)
+
+5
+
+1
+
+3
+
+MOS (lab)
+
+5
+
+Figure 2. MOS-conditioned inter-rater variance distributions for KonIQ [13], SPAQ [8], LIVE-W [10], AGIQA-3K [17], KADID-10k [21],
+and CSIQ [16]. Axis suffixes denote the collection protocol: crowdsourcing or lab for controlled laboratory studies. Points denote samples,
+curves denote binned medians, and bands denote interquartile ranges. The dataset-dependent scale and shape suggest that manifest-level
+variance is informative but imperfect as a proxy for human uncertainty.
+
+E. Additional Reward Definitions
+
+label:
+
+E.1. Baseline Reward Definitions
+For the Q-Insight baseline [18], we follow the official fixedthreshold binary reward:
+h
+i
+(k)
+(k)
+rQI,i = 1 |si − µi | ≤ τ ,
+τ = 0.35.
+(7)
+
+
+
+1,
+yij = 0.5,
+
+
+0,
+
+µi > µj ,
+µi = µj ,
+µi < µj .
+
+With the hard label in Eq. (10), the fidelity reward is
+q
+q
+(k)
+(k)
+(k)
+rVQ-R1,ij = pij yij + (1 − pij )(1 − yij ).
+
+The continuous Thurstone preference probability [31] is
+
+
+µ
+−
+µ
+i
+j
+.
+p(i > j) = Φ q
+(8)
+σi2 + σj2
+
+(10)
+
+(11)
+
+The uncertainty-normalized MR-IQA
+q variant uses human
+unc
+opinion variance through τij
+= σi2 + σj2 , whereas the
+raw variant sets τij = 1 and the VQ-R1 baseline [35] uses
+model sampling variance in Eq. (9).
+
+For the VQ-R1 baseline [35], we follow the official
+Thurstone-style [31] fidelity reward. Here “Thurstonestyle” refers to the preference-modeling principle, while the
+implemented reward is prediction-dependent and uses the
+model prediction sampling variance. Let σ̂i2 and σ̂j2 denote
+the model prediction sampling variances. The predicted
+preference probability for completion k of image xi is
+
+
+(k)
+s
+−
+s̄
+j
+(k)
+.
+(9)
+pij = Φ qi
+σ̂i2 + σ̂j2
+
+E.2. Is Margin Learning Metric Cheating?
+Margin learning is not direct PLCC optimization. Quality
+margin is a relational variable induced by human opinion
+scores, while PLCC is an evaluation metric. Their connection arises because both remove global offsets and focus on
+relative variation. During training, MR-IQA uses sampled
+pairwise errors in main-paper Eq. (19), not PLCC or the cosine identity in main-paper Eq. (16), keeping the feedback
+local and avoiding group-dependent metric rewards.
+
+Compared with the continuous probability in Eq. (8), the official VQ-R1 implementation [35] discretizes the MOS relation into three outcomes, breaking the continuity of the
+original Thurstone formulation, and converts it into a hard
+
+13
+
+F. Qualitative Case Study
+(a) Margin Learning
+Case 1: Large-margin separation
+
+Case 2: Small-margin correction
+4.5
+
+5.0
+
+𝜇 = 4.29
+
+𝜇 = 3.06
+
+∆𝜇
+
+∆𝜇
+3.4
+
+𝜇 = 2.90
+
+3.2
+Epoch 1
+
+Epoch 10
+
+𝜇 = 3.14
+
+Epoch 1
+
+Epoch 10
+
+(b) Perception Evolving
+Epoch-1
+
+The composition is strong, with the building as a focal point and the water leading the eye into the
+scene. …... The image is clear and well-exposed, with no harsh shadows or overexposure. rating: 5.0
+
+Epoch-5
+
+The image has a slight blur. …… The details are clear, and the colors are vibrant. The image is well-lit,
+and the contrast is noticeable. The overall quality is good, with no significant flaws. rating: 4.4
+
+Epoch-10
+
+The image has a noticeable level of noise, which affects the clarity and detail. The lighting is somewhat
+flat, and the colors are muted. …… The overall quality is acceptable, but not exceptional. rating: 3.7
+
+𝜇 = 3.04
+
+Figure 3. Qualitative case study of margin learning. (a) The upper part shows two complementary margin behaviors on validation pairs
+from KonIQ [13] and KADID-10k [21]: MR-IQA closes an initially overestimated gap for similar-quality images and separates an initially
+underestimated gap for images with clearer quality differences. (b) The lower part shows the model’s gradually increasing perception
+ability during training, where textual rationales become more sensitive to visible quality degradations.
+
+14
+
+
